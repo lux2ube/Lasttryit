@@ -192,8 +192,28 @@ export default function Webhooks() {
 
   const selectedConfig = configs?.find(c => c.id === selectedConfigId);
   const webhookBaseUrl = `${window.location.origin}/api/webhooks/sms`;
-  // Full URL format for Forward SMS app (no body template or headers needed)
+  // Full URL format for Forward SMS app via our server (no body template or headers needed)
   const fwdSmsUrl = (slug: string) => `${webhookBaseUrl}/${slug}?message={msg}&time={local-time}`;
+
+  // Fetch Supabase public config from our backend (requires auth — anon key is safe to display to staff)
+  const { data: publicConfig } = useQuery<{
+    supabaseProjectId: string;
+    supabaseAnonKey: string;
+    supabaseRestUrl: string;
+  }>({ queryKey: ["/api/public-config"] });
+
+  // Supabase direct REST URL — inserts directly into sms_raw_inbox via public anon key
+  // RLS ensures anon can only INSERT (slug, raw_message, sender) — no other table is accessible
+  const supabaseInboxUrl = publicConfig ? `${publicConfig.supabaseRestUrl}/sms_raw_inbox` : "";
+  const supabaseDirectUrl = (slug: string) =>
+    supabaseInboxUrl
+      ? `${supabaseInboxUrl}?apikey=${publicConfig!.supabaseAnonKey}&slug=${encodeURIComponent(slug)}&raw_message={msg}&sender={from}`
+      : "";
+  const supabaseBody = (slug: string) =>
+    JSON.stringify({ slug, raw_message: "{msg}", sender: "{from}" }, null, 2);
+  const supabaseHeaders = publicConfig
+    ? `apikey: ${publicConfig.supabaseAnonKey}\nContent-Type: application/json\nPrefer: return=minimal`
+    : "";
 
   // Config CRUD mutations
   const createConfigMutation = useMutation({
@@ -476,49 +496,100 @@ export default function Webhooks() {
           )}
 
           {selectedConfig && (
-            <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
-              <CardContent className="p-4 space-y-3">
-                <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
-                  <Globe className="w-4 h-4" />
-                  Forward SMS App Setup — {selectedConfig.name}
-                </p>
-                <div className="grid grid-cols-1 gap-2 text-xs text-blue-700 dark:text-blue-300">
-                  <div className="space-y-1">
-                    <p className="font-medium">① Set Method to POST and URL to:</p>
-                    <div className="flex items-center gap-2">
-                      <code className="bg-white dark:bg-blue-950 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-mono flex-1 break-all" data-testid={`text-setup-url-${selectedConfig.slug}`}>
-                        {webhookBaseUrl}/{selectedConfig.slug}
-                      </code>
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-blue-300"
-                        onClick={() => { copyToClipboard(`${webhookBaseUrl}/${selectedConfig.slug}`); toast({ title: "URL copied" }); }}>
-                        <Copy className="w-3 h-3" />
-                      </Button>
+            <div className="space-y-3">
+              {/* Option A — Supabase Direct (Recommended) */}
+              <Card className="border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/10">
+                <CardContent className="p-4 space-y-3">
+                  <p className="text-sm font-semibold text-violet-800 dark:text-violet-300 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4" />
+                    Option A — Supabase Direct (Recommended) — {selectedConfig.name}
+                  </p>
+                  <p className="text-xs text-violet-600 dark:text-violet-400">
+                    Sends SMS directly to Supabase. Secure: RLS restricts the public key to INSERT-only on <code className="bg-white/60 dark:bg-black/20 px-0.5 rounded">sms_raw_inbox</code>. No other data is accessible.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 text-xs text-violet-700 dark:text-violet-300">
+                    <div className="space-y-1">
+                      <p className="font-medium">① Method: POST — URL:</p>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-white dark:bg-violet-950 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono flex-1 break-all" data-testid={`text-supabase-url-${selectedConfig.slug}`}>
+                          {supabaseInboxUrl || "Loading…"}
+                        </code>
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseInboxUrl); toast({ title: "URL copied" }); }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-medium">② Headers:</p>
+                      <div className="flex items-center gap-2">
+                        <pre className="bg-white dark:bg-violet-950 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono flex-1 text-xs whitespace-pre-wrap break-all">
+                          {supabaseHeaders || "Loading…"}
+                        </pre>
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseHeaders); toast({ title: "Headers copied" }); }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-medium">③ Body (JSON — replace variables with your app's SMS properties):</p>
+                      <div className="flex items-center gap-2">
+                        <pre className="bg-white dark:bg-violet-950 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono flex-1 text-xs whitespace-pre-wrap">
+                          {supabaseBody(selectedConfig.slug)}
+                        </pre>
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseBody(selectedConfig.slug)); toast({ title: "Body copied" }); }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <p className="text-violet-500 dark:text-violet-400 mt-0.5">
+                        Replace <code className="bg-white/60 px-0.5 rounded">{"{msg}"}</code> with your app's SMS message variable and <code className="bg-white/60 px-0.5 rounded">{"{from}"}</code> with the sender number.
+                      </p>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <p className="font-medium">② Add a Header:</p>
-                    <div className="flex items-center gap-2">
-                      <code className="bg-white dark:bg-blue-950 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-mono">Content-Type: application/json</code>
+                </CardContent>
+              </Card>
+
+              {/* Option B — Via App Server */}
+              <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
+                <CardContent className="p-4 space-y-3">
+                  <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4" />
+                    Option B — Via App Server — {selectedConfig.name}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    Sends SMS through the FOMS application server. Requires the app to be running and reachable.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 text-xs text-blue-700 dark:text-blue-300">
+                    <div className="space-y-1">
+                      <p className="font-medium">① Method: POST — URL:</p>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-white dark:bg-blue-950 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-mono flex-1 break-all" data-testid={`text-setup-url-${selectedConfig.slug}`}>
+                          {webhookBaseUrl}/{selectedConfig.slug}
+                        </code>
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-blue-300 shrink-0"
+                          onClick={() => { copyToClipboard(`${webhookBaseUrl}/${selectedConfig.slug}`); toast({ title: "URL copied" }); }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-medium">② No headers, no body needed — just URL with query params:</p>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-white dark:bg-blue-950 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-mono flex-1 break-all">
+                          {fwdSmsUrl(selectedConfig.slug)}
+                        </code>
+                        <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-blue-300 shrink-0"
+                          onClick={() => { copyToClipboard(fwdSmsUrl(selectedConfig.slug)); toast({ title: "URL copied" }); }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <p className="font-medium">③ Set Body template to (using your app's Available Properties):</p>
-                    <div className="flex items-center gap-2">
-                      <code className="bg-white dark:bg-blue-950 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-mono flex-1">
-                        {`{"message": "%message%"}`}
-                      </code>
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs border-blue-300"
-                        onClick={() => { copyToClipboard('{"message": "%message%"}'); toast({ title: "Body template copied" }); }}>
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <p className="text-blue-600 dark:text-blue-400 mt-0.5">
-                      The <code className="bg-white/60 px-0.5 rounded">%message%</code> variable is replaced with the actual SMS text by the app.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </TabsContent>
 
@@ -661,11 +732,54 @@ export default function Webhooks() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Forward SMS App Setup */}
+                {/* Option A — Supabase Direct */}
+                <div className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/20 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-violet-600 shrink-0" />
+                    <p className="text-sm font-semibold text-violet-800 dark:text-violet-200">Option A — Supabase Direct (Recommended)</p>
+                  </div>
+                  <div className="space-y-2 text-xs text-violet-700 dark:text-violet-300">
+                    <div className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-2">
+                      <span className="font-semibold">Method</span><span>POST</span>
+                      <span className="font-semibold">URL</span>
+                      <div className="flex items-center gap-1.5">
+                        <code className="bg-white dark:bg-black/30 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono text-xs break-all flex-1">
+                          {supabaseInboxUrl || "Loading…"}
+                        </code>
+                        <Button type="button" variant="ghost" size="sm" className="text-violet-700 dark:text-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseInboxUrl); toast({ title: "URL copied" }); }}>
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                      <span className="font-semibold">Headers</span>
+                      <div className="flex items-center gap-1.5">
+                        <pre className="bg-white dark:bg-black/30 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono text-xs flex-1 whitespace-pre-wrap break-all">
+                          {supabaseHeaders || "Loading…"}
+                        </pre>
+                        <Button type="button" variant="ghost" size="sm" className="text-violet-700 dark:text-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseHeaders); toast({ title: "Headers copied" }); }}>
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                      <span className="font-semibold">Body</span>
+                      <div className="flex items-center gap-1.5">
+                        <pre className="bg-white dark:bg-black/30 border border-violet-200 dark:border-violet-700 px-2 py-1 rounded font-mono text-xs flex-1 whitespace-pre-wrap">
+                          {supabaseBody(selectedConfig.slug)}
+                        </pre>
+                        <Button type="button" variant="ghost" size="sm" className="text-violet-700 dark:text-violet-300 shrink-0"
+                          onClick={() => { copyToClipboard(supabaseBody(selectedConfig.slug)); toast({ title: "Body copied" }); }}>
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Option B — Via App Server */}
                 <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">Forward SMS App — Paste & Done (no body template or headers needed)</p>
+                    <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">Option B — Via App Server (GET or POST, no body needed)</p>
                   </div>
                   <div className="space-y-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <div className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1">

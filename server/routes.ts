@@ -497,6 +497,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
   });
 
+  // ─── PUBLIC CONFIG (authenticated) — safe public-side credentials ──────────
+  app.get("/api/public-config", requireAuth, (_req, res) => {
+    res.json({
+      supabaseProjectId: "rhdcobxxezxwesksnbrt",
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
+      supabaseRestUrl: `https://rhdcobxxezxwesksnbrt.supabase.co/rest/v1`,
+    });
+  });
+
   // ─── SETTINGS ─────────────────────────────────────────────────────────────
   app.get("/api/settings", requireAuth, async (req, res) => {
     try { res.json(await storage.getAllSettings()); }
