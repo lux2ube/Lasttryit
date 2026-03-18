@@ -1,0 +1,378 @@
+إعدادات العملات والحسابات (Accounts & Assets)
+
+Setting	Type	Description	Example
+
+fiat_currencies	list	العملات المحلية المقبولة	["YER","SAR","USD"]
+crypto_assets	list	العملات الرقمية المدعومة	["USDT","BTC","ETH"]
+crypto_networks	list	الشبكات المدعومة لكل عملة	{"USDT":["BEP20","TRC20","ERC20"]}
+bank_accounts	JSONB	حساباتنا البنكية الداخلية	[{"id":"bank_01","name":"Kuraimi Bank","currency":"YER"}]
+crypto_wallets	JSONB	المحافظ الرقمية الداخلية	[{"id":"wallet_01","provider":"Binance","network":"BEP20"}]
+service_fee_rates	JSONB	رسوم الخدمات لكل نوع عملية	{"deposit":4,"withdraw":2}
+fx_spread_rates	JSONB	فارق الصرف لكل عملة	{"YER":0.004}
+default_outflow_addresses	JSONB	العناوين الافتراضية للعملاء لكل مزود خدمة	{"Binance":"TX123abc"}
+
+
+
+---
+
+2️⃣ إعدادات العملاء (Customer Defaults)
+
+Setting	Type	Description	Example
+
+customer_risk_levels	ENUM list	درجات المخاطر للعملاء	["low","medium","high"]
+customer_status_options	ENUM list	حالة العميل التشغيلية	["active","suspended"]
+verification_status_options	ENUM list	حالات التوثيق	["verified","unverified","blocked"]
+loyalty_groups	JSONB	مجموعات الولاء وتفاصيلها	{"gold":{"discounts":{"deposit":4,"withdraw":2}}}
+referral_tracking_enabled	boolean	تفعيل نظام الاحالات	true
+customer_labels	list	Labels لتصنيف العملاء	["VIP","PromoEligible","HighVolume"]
+
+
+
+---
+
+3️⃣ إعدادات معالجة التحويلات (Processing Rules)
+
+Setting	Type	Description	Example
+
+auto_match_endpoints	JSONB	Endpoints للتعرف على التحويلات تلقائيًا	[{"type":"sms","parser":"bank_sms_parser"}]
+crypto_api_endpoints	JSONB	واجهات API لجلب معاملات المحافظ	[{"provider":"Ankr","url":"https://api.ankr.com"}]
+excel_import_enabled	boolean	السماح بمزامنة القيود من ملفات Excel	true
+auto_outflow_processing	boolean	تفعيل التحويل الآلي للعملات الرقمية	true
+net_difference_handling	JSONB	قواعد التعامل مع الفارق الصافي بعد الرسوم	{"positive":["service_fee","customer_credit"],"negative":["service_expense","customer_receivable"]}
+
+
+
+---
+
+4️⃣ إعدادات Logs والمراجعة
+
+Setting	Type	Description	Example
+
+log_level	ENUM	مستوى تسجيل الأحداث	"INFO"
+audit_enabled	boolean	تفعيل تسجيل كل العمليات	true
+record_status_options	ENUM list	حالات سجلات العمليات	["recorded","confirmed","used"]
+
+
+
+---
+
+5️⃣ إعدادات أمان النظام والقائمة السوداء
+
+Setting	Type	Description	Example
+
+blacklist_data	JSONB	بيانات محظورة (أسماء جزئية، أرقام هواتف)	[{"type":"phone","value":"+967777000111"}]
+auto_blacklist_check	boolean	التحقق تلقائيًا عند إضافة عملاء جدد	true
+
+
+
+---
+
+6️⃣ إعدادات الإشعارات والتواصل
+
+Setting	Type	Description	Example
+
+whatsapp_api	JSONB	بيانات الربط مع WhatsApp	{"base_url":"https://api.whatsapp.com","auth_token":"xxx"}
+default_notification_numbers	array	أرقام لإرسال الإشعارات	["+967771234567"]
+group_notifications_enabled	boolean	تمكين إشعارات مجموعات العملاء	true
+
+
+
+---
+
+✅ خلاصة: قبل بدء أي عمليات، يجب تعبئة هذه المتغيرات الأساسية. بعد ذلك، عند تسجيل Records أو Transactions، يمكن للنظام:
+
+معرفة الحسابات الافتراضية للعملاء.
+
+حساب الرسوم والفارق الصافي تلقائيًا.
+
+تحديد الاتجاه (inflow/outflow) والحساب المقابل.
+
+تطبيق سياسات الولاء والتخفيضات.
+
+التحقق من العملاء المشبوهين أو المحظورين.
+
+أتمتة التحويلات والمزامنة مع API الخارجية.
+
+
+
+---
+
+
+Field	Type	Description	Example	Notes / Usage
+
+first_name	string	الاسم الأول للعميل	Ali	يستخدم في المراسلات
+second_name	string	الاسم الثاني	Ahmed	كما يظهر في الوثائق
+third_name	string	الاسم الثالث	Saleh	اختيارياً حسب العميل
+last_name	string	الاسم الأخير	Alawi	يستخدم للتعرف الرسمي
+full_name	string	الاسم الموحد	Ali Ahmed Saleh Alawi	للتعامل الموحد داخل النظام
+phone_primary	string	رقم الهاتف الرئيسي	+967771234567	يستخدم للإشعارات
+phone_secondary	array	أرقام إضافية	[+967773334455]	مرن لعدة استخدامات
+whatsapp_group_id	string	معرف مجموعة واتساب للعميل	grp-001	لإرسال الإشعارات الجماعية
+customer_status	ENUM('active','suspended')	الحالة التشغيلية للعميل	active	يحدد إمكانية الوصول للنظام
+verification_status	ENUM('verified','unverified','blocked')	حالة التوثيق	verified	للتحقق من إمكانية التعامل مع العميل
+risk_level	ENUM('low','medium','high')	درجة المخاطر للعميل	medium	يحدد قواعد الحماية
+loyalty_group	string	المجموعة المرتبطة بمستوى الولاء	gold	يطبق مزايا المجموعة تلقائيًا
+referral_parent_id	UUID	معرف العميل المرجعي إن وجد	cust-010	لتتبع أداء الإحالات
+demographics	JSONB	بيانات ديموغرافية مثل الجنس، تاريخ الميلاد، العنوان	{"gender":"male","dob":"1990-01-01","address":"Sana'a, Yemen"}	يمكن توسيعها لاحقًا
+labels	array	تصنيفات إضافية للعميل	["vip","promo_eligible"]	لتسهيل الفرز وإدارة الحملات
+documentation	JSONB	مستندات الهوية والسكن وأي وثائق إضافية	[{"type":"id","number":"Y123456","issue_date":"2020-01-01","expiry_date":"2030-01-01"}]	يسمح بتخزين غير محدود للمستندات
+blacklist_flags	JSONB	أي بيانات محظورة (جزء من الاسم أو رقم الهاتف)	[{"type":"phone","value":"+967777000111"}]	يستخدم للتحقق قبل إضافة العميل للنظام
+
+
+
+---
+
+
+
+---
+
+Flexible Records Schema (All Fields Reusable)
+
+Field	Type	Description	Usage in Transaction Types
+
+id	UUID	معرف فريد للسجل	كل الأنواع
+transaction_id	UUID	ربط record ب transaction	كل الأنواع
+customer_id	UUID	العميل المرتبط بالسجل	كل الأنواع
+type	ENUM('cash','crypto')	نوع السجل	كل الأنواع
+direction	ENUM('inflow','outflow')	اتجاه السجل	كل الأنواع
+status	ENUM('recorded','manual_matched','auto_matched','confirmed','used')	حالة السجل	كل الأنواع
+created_at	TIMESTAMP	تاريخ إنشاء السجل	كل الأنواع
+updated_at	TIMESTAMP	آخر تعديل	كل الأنواع
+
+
+
+---
+
+Operating Section (مرن لجميع الأنواع)
+
+Field	Type	Description	Notes
+
+source	string	مصدر السجل (manual / endpoint)	كل الأنواع
+endpoint_name	string	اسم endpoint أو المصدر	كل الأنواع
+record_method	ENUM('manual','auto')	طريقة تسجيل السجل	كل الأنواع
+matched_by	string	من قام بالمطابقة	كل الأنواع
+processing_stage	ENUM('recorded','matched','confirmed')	مرحلة المعالجة	كل الأنواع
+
+
+
+---
+
+Financial Section (قابل للتكيف)
+
+Field	Type	Description	Notes / Usage
+
+account_id
+UUID
+account_name
+string
+account_currency
+string
+account_asset_type
+string
+نوع الأصل (cash/crypto)
+
+amount	decimal	المبلغ الأصلي	كل الأنواع
+currency	string	العملة الأصلية أو المبلغ الرقمي	Cash: YER / Crypto: USDT
+usd_equivalent	decimal	المكافئ بالدولار	كل الأنواع
+exchange_rate	decimal	سعر الصرف	Cash فقط (YER→USD)
+account_field	string	يمكن أن يكون: رقم الحساب البنكي، عنوان محفظة، أو ID منصة	يتغير حسب نوع record وoutflow/inflow
+
+
+
+---
+
+Client Section (مرن لجميع الأنواع)
+
+Field	Type	Description	Notes / Usage
+
+client_name	string	اسم العميل	كل الأنواع
+client_sender_name	string	اسم المرسل	كل الأنواع
+client_recipient_name	string	اسم المستلم	كل الأنواع
+client_match_method	string	طريقة مطابقة العميل	كل الأنواع
+
+
+
+---
+
+Asset / Provider Section (قابل للتكيف)
+
+Field	Type	Description	Notes / Usage
+
+asset_or_provider_name	string	اسم مزود الخدمة أو العملة	Crypto: الشبكة/مزود، Cash: البنك
+network_or_id	string	عنوان محفظة أو رقم حساب أو ID منصة	Crypto Outflow: wallet address، Cash Outflow: رقم الحساب البنكي
+is_whitelisted	boolean	لتسهيل auto-fill	فقط Outflow
+
+
+
+---
+
+Blockchain / Reference Section (قابل للتكيف)
+
+Field	Type	Description	Notes / Usage
+
+txid_or_reference_number	string	TxID للكريبتو أو رقم الحوالة البنكية	يتغير حسب النوع
+block_number_or_batch_id	int/string	رقم البلوك أو Batch ID	Crypto فقط أو دفعات Cash
+documents	JSONB	ملفات داعمة	كل الأنواع
+notes	string	ملاحظات عامة	كل الأنواع
+endpoint_text	string	نص المصدر الخام	كل الأنواع
+
+
+
+---
+
+Logs Section
+
+Field	Type	Description	Notes
+
+log_events	JSONB	كل أحداث النظام	كل الأنواع
+
+
+
+---
+
+تمام، دعنا نركز على حالات الـ processing في الـ record. هذه نقطة مهمة جدًا لأنها تتحكم في سير العمل، الأتمتة، وتتبع الأخطاء. سأقترح لك نموذج واضح ونناقشه.
+
+
+---
+
+1️⃣ مفهوم processing_stage
+
+processing_stage يحدد المرحلة التي وصل لها السجل داخل النظام. كل حالة تعكس وضعًا محددًا للسجل: هل مجرد تسجيل، مطابقة يدوية أو تلقائية، تم تأكيده، أو تم استخدامه في transaction.
+
+الهدف:
+
+تتبع الأخطاء
+
+التحكم في من يمكنه تعديل السجل
+
+معرفة ما إذا كان يمكن استخدامه في transaction أو لا
+
+
+
+---
+
+2️⃣ الحالات المقترحة لـ processing_stage
+
+الحالة	متى تظهر	التأثير / ما يسمح به	ملاحظات
+
+recorded	عند تسجيل أي record جديد (يدويًا أو تلقائيًا)	السجل موجود في النظام، يمكن التعديل، لا يمكن ربطه ب transaction بعد	البداية لجميع السجلات
+manual_matched	بعد أن يقوم موظف بالمطابقة اليدوية مع العميل أو مصدر البيانات	يسمح بالتحويل إلى confirmed بعد تحقق الموظف	تستخدم عندما لا يتم المطابقة تلقائيًا
+auto_matched	بعد مطابقة record تلقائيًا عبر قواعد النظام / API / parsing	يمكن التأكيد تلقائيًا أو مراجعة	يستخدم للأتمتة، يقلل العمل اليدوي
+confirmed	بعد مراجعة نهائية من الموظف أو بعد التأكيد التلقائي	يمكن استخدام السجل في transaction	هذه المرحلة قبل الاستخدام الفعلي
+used	بعد ربط record ب transaction وإنشاء القيود المحاسبية	لا يمكن استخدام السجل مرة أخرى في أي transaction	يحمي من التكرار والازدواجية
+
+
+
+---
+
+
+
+---
+
+Table: transactions – Updated Full Schema
+
+Field	Type	Description	Example	Notes / Usage
+
+id	UUID	معرف فريد للـ Transaction	tx-0001	كل العمليات
+type	ENUM('deposit','withdraw','transfer')	نوع العملية	deposit	deposit → Cash Inflow + Crypto Outflow
+related_records	JSONB	قائمة الـ Records المرتبطة بالمعاملة	[{"record_id":"rec-001","type":"cash_inflow"},{"record_id":"rec-002","type":"crypto_outflow"}]	يستخدم لتتبع أي قيود دخلت في العملية
+total_in_usd	decimal	مجموع السجلات الداخلة بالدولار	104	يحسب من جميع Inflow Records
+total_out_usd	decimal	مجموع السجلات الخارجة بالدولار	100	يحسب من جميع Outflow Records
+
+
+
+---
+
+Service Fee (Revenue)
+
+Field	Type	Description	Example	Notes / Usage
+
+service_fee_rate	decimal	نسبة العمولة أو رسوم الخدمة	4	يستخدم لحساب صافي الفرق لصالحنا
+service_fee_amount	decimal	قيمة العمولة المحسوبة	4	يتم خصمها من Transaction
+
+
+
+---
+
+Service Expense (Cost)
+
+Field	Type	Description	Example	Notes / Usage
+
+service_expense_rate	decimal	نسبة المصاريف (رسوم الموردين، الشبكات، أو أي مصاريف)	1.5	يطبق عند وجود مصاريف على العملية
+service_expense_amount	decimal	قيمة المصاريف المحسوبة	1.56	يستخدم لحساب الفرق الصافي النهائي
+
+
+
+---
+
+Net Difference
+
+Field	Type	Description	Example	Notes / Usage
+
+net_difference	decimal	الفرق الصافي بعد خصم Service Fee و Service Expense	1.44	يمكن أن يكون + أو -
+net_difference_type	ENUM('premium_fee','customer_credit','premium_discount','customer_receivable')	نوع معالجة الفرق الصافي	premium_fee	يحدد إذا الفرق لصالحنا أو على العميل
+net_difference_direction	ENUM('inflow','outflow')	اتجاه الفرق الصافي	inflow	inflow → دخلنا، outflow → مصروف/مديونية العميل
+net_difference_account	UUID	الحساب المقابل للفرق الصافي	revenue_service_fee	يمكن أن يكون حساب الإيرادات أو مصروف أو حساب العميل
+
+
+
+---
+
+Metadata & Logs
+
+Field	Type	Description	Example	Notes / Usage
+
+created_at	TIMESTAMP	تاريخ إنشاء الـ Transaction	2026-03-08T10:40	كل العمليات
+updated_at	TIMESTAMP	آخر تعديل للمعاملة	2026-03-08T10:45	كل العمليات
+notes	string	ملاحظات عامة	deposit for USDT conversion	أي ملاحظات أو استثناءات
+logs	JSONB	أحداث النظام المتعلقة بالمعاملة	[{"event":"transaction_created","time":"2026-03-08T10:42"}]	لتتبع الأتمتة والأخطاء
+
+
+
+---
+
+✅ بهذا الشكل:
+
+1. هناك فصل واضح بين Service Fee (Revenue) و Service Expense (Cost).
+
+
+2. Net Difference يحسب تلقائيًا بعد خصم الرسوم والمصاريف، ويحدد نوعه وحسابه المقابل.
+
+
+3. كل شيء قابل للتوسع وإضافة قواعد تلقائية لاحقًا.
+
+
+
+
+---
+Table: Net Difference Handling in Records
+Scenario
+Net Diff Sign
+Record Type
+Direction
+Account (Counterpart)
+Notes / Description
+Premium Service Fee
++
+service_fee
+inflow
+Revenue / Income Account (Service Fees Revenue)
+الفرق لصالحنا → يسجل كدخل للنظام
+Customer Credit
++
+customer_credit
+outflow
+Customer Account
+الفرق لصالح العميل → إضافة رصيد للعميل لتقليل المدفوعات المستقبلية
+Premium Service Discount
+-
+service_expense
+outflow
+Expense Account
+الفرق علينا → تسجيل مصروف نتيجة خصم للعميل
+Receivable from Customer
+-
+customer_receivable
+inflow
+Customer Account
+الفرق علينا → تسجيل مديونية العميل لصالحنا → يتم خصمها عند الدفع

@@ -1,0 +1,18 @@
+SYSTEM OVERRIDE DIRECTIVE: EXHAUSTIVE GENERATION MODE
+PROJECT: "Coin Cash" (FinTech ERP & CRM)
+
+You are operating under STRICT EXHAUSTIVE MODE. The foundation of the system is already conceptually built. I do not have the time to manually add missed components, track down missing pages, or stitch together partial code. You are a Principal Software Engineer, and your output must be a 100% production-ready, fully integrated banking app.
+
+CRITICAL RULES OF EXECUTION:
+1. ZERO PLACEHOLDERS: You are STRICTLY FORBIDDEN from using comments like `// TODO`, `// Add logic here`, `// implement later`, or `// ...rest of the code`. Every API route, every UI component, every database query, and every state management slice MUST be written in its entirety.
+2. COMPREHENSIVE PAGE GENERATION: We are building a professional system. You must generate every required page (Global Dashboard, CRM & KYC Pipeline, AML Blacklist, Smart Records Entry, Transaction & Spread Calculator, Webhooks config) fully styled and fully functional in parallel. Do not skip any state management (Redux/Zustand) or API integrations.
+3. CONTINUOUS WORKFLOW: If you hit a token output limit, stop exactly where you are. I will type the word "CONTINUE". You will resume from the EXACT character you stopped at without repeating previous code, summarizing, or apologizing.
+4. NO HALLUCINATION: Rely strictly on the defined business logic: Inflow/Outflow Records MUST merge into Transactions. Spread, 4% Service Fees, and Adjustments (Premium Fee/Discount, Receivable/Payable) MUST be calculated automatically. Client preferences (whitelist addresses, default bank accounts) MUST dictate the UI flows.
+
+IMMEDIATE TASK:
+1. Audit the current state of the codebase against a complete FinTech system standard. 
+2. Identify every missing page, missing UI component, and incomplete backend service.
+3. Output a strict numbered list of these missing elements.
+4. Wait for my command "EXECUTE". Once I say "EXECUTE", you will begin writing the COMPLETE, production-ready code for item #1, then item #2, sequentially, until the entire system is built without skipping a single line.
+
+Do not explain this directive. Do not greet me. Output the audit list now.

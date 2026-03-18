@@ -1,0 +1,76 @@
+To ensure **Replit** (or your developer) builds this correctly, you need to provide a clear, technical **System Logic Architecture**. This prompt focuses on the "Delayed Journaling" principle to ensure financial integrity while allowing manual flexibility.
+
+---
+
+### **Prompt for Replit: Accounting Logic Re-engineering**
+
+**Subject:** Implementation of Delayed Journaling and Suspense Account Logic for Crypto/Forex Transactions.
+
+**Core Objective:** Modify the system to separate **Data Syncing** from **Financial Posting**. The system must allow manual adjustments to commissions and exchange rate differences before any final entry is made to the Client Ledger or P&L (Profit & Loss) accounts.
+
+---
+
+### **1. Transaction Status & Accounting Workflow**
+
+| Status | Trigger | Accounting Action (Ledger) | Data Flexibility |
+| --- | --- | --- | --- |
+| **Draft / Recorded** | API Sync | **Debit:** Wallet/Bank <br>
+
+<br> **Credit:** Unmatched (Suspense) Account | **Full Edit:** All fields (Amount, Rate, Fees) are editable. |
+| **Matched** | Client Identified | **No New Ledger Entry.** <br>
+
+<br> Link `client_id` to the transaction data only. | **High:** Can still modify Exchange Rates and Commissions. |
+| **Confirmed** | Manual Admin Approval | **Final Clearing Entry:** <br>
+
+<br> 1. Clear Unmatched Account. <br>
+
+<br> 2. Post Net to Client Account. <br>
+
+<br> 3. Post Difference to P&L (Revenue). | **Locked:** No further financial edits allowed. |
+| **Cancelled** | Manual Admin Rejection | **Reverse Original Entry:** <br>
+
+<br> **Debit:** Unmatched Account <br>
+
+<br> **Credit:** Wallet/Bank | **Read Only.** |
+
+---
+
+### **2. General Principle for P&L (Profit & Loss)**
+
+Apply this logic to all revenue-generating fields (Commissions, Spread, Exchange Rate Gains/Losses):
+
+* **Virtual Calculation:** When a transaction is `Matched`, the system calculates the "Suggested Profit" (e.g., 4 USD) based on preset rules. This is a **Virtual Field** in the UI, not a Ledger entry.
+* **Manual Override:** The Admin must be able to overwrite the Suggested Profit/Rate.
+* **Realized Gain:** The Profit/Loss is only "Realized" and moved to the Income Statement at the moment of `Confirmed` status.
+
+---
+
+### **3. Handling Exchange Rate Fluctuations**
+
+Since the exchange rate might change between the API Sync and the Manual Confirmation:
+
+* **Snapshot Rate:** Store the rate at the time of API Sync.
+* **Execution Rate:** Allow the Admin to input the final execution rate.
+* **Auto-Balancing:** The system must calculate the delta:
+
+$$\text{Total USD} = (\text{Crypto Amount} \times \text{Execution Rate}) + \text{Fees}$$
+
+
+
+The system then generates a single balanced Journal Entry at the `Confirmed` stage to account for this total.
+
+---
+
+### **4. Developer Instructions (Technical Requirements)**
+
+* **Validation:** Prevent the system from transitioning to `Confirmed` if the `client_id` is null or if the Journal Entry is not balanced ($Debits \neq Credits$).
+* **Audit Trail:** Every time a field is edited in `Recorded` or `Matched` status, log the change in an `audit_logs` table (Old Value vs. New Value).
+* **Atomicity:** The final `Confirmed` posting must be a **Database Transaction**. If any part of the ledger posting fails, the entire status change must roll back.
+
+---
+
+### **Why this solves your problem:**
+
+By following this structure, your **General Ledger** remains clean. You are no longer "editing a posted entry" (which is what caused the "Ajna" or mess). Instead, you are editing **Pending Data**, and only "Writing the Book" once you are 100% sure about the numbers.
+
+**Would you like me to provide the SQL Schema for the `transactions` and `ledger_entries` tables to keep them synchronized?**

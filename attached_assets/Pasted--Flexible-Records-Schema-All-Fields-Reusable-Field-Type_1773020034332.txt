@@ -1,0 +1,223 @@
+
+
+
+---
+
+
+Flexible Records Schema (All Fields Reusable)
+
+
+Field	Type	Description	Usage in Transaction Types
+
+
+id	UUID	معرف فريد للسجل	كل الأنواع
+
+transaction_id	UUID	ربط record ب transaction	كل الأنواع
+
+customer_id	UUID	العميل المرتبط بالسجل	كل الأنواع
+
+type	ENUM('cash','crypto')	نوع السجل	كل الأنواع
+
+direction	ENUM('inflow','outflow')	اتجاه السجل	كل الأنواع
+
+status	ENUM('recorded','manual_matched','auto_matched','confirmed','used')	حالة السجل	كل الأنواع
+
+created_at	TIMESTAMP	تاريخ إنشاء السجل	كل الأنواع
+
+updated_at	TIMESTAMP	آخر تعديل	كل الأنواع
+
+
+
+
+---
+
+
+Operating Section (مرن لجميع الأنواع)
+
+
+Field	Type	Description	Notes
+
+
+source	string	مصدر السجل (manual / endpoint)	كل الأنواع
+
+endpoint_name	string	اسم endpoint أو المصدر	كل الأنواع
+
+record_method	ENUM('manual','auto')	طريقة تسجيل السجل	كل الأنواع
+
+matched_by	string	من قام بالمطابقة	كل الأنواع
+
+processing_stage	ENUM('recorded','matched','confirmed')	مرحلة المعالجة	كل الأنواع
+
+
+
+
+---
+
+
+Financial Section (قابل للتكيف)
+
+
+Field	Type	Description	Notes / Usage
+
+
+account_id
+
+UUID
+
+account_name
+
+string
+
+account_currency
+
+string
+
+account_asset_type
+
+string
+
+نوع الأصل (cash/crypto)
+
+
+amount	decimal	المبلغ الأصلي	كل الأنواع
+
+currency	string	العملة الأصلية أو المبلغ الرقمي	Cash: YER / Crypto: USDT
+
+usd_equivalent	decimal	المكافئ بالدولار	كل الأنواع
+
+exchange_rate	decimal	سعر الصرف	Cash فقط (YER→USD)
+
+account_field	string	يمكن أن يكون: رقم الحساب البنكي، عنوان محفظة، أو ID منصة	يتغير حسب نوع record وoutflow/inflow
+
+
+
+
+---
+
+
+Client Section (مرن لجميع الأنواع)
+
+
+Field	Type	Description	Notes / Usage
+
+
+client_name	string	اسم العميل	كل الأنواع
+
+client_sender_name	string	اسم المرسل	كل الأنواع
+
+client_recipient_name	string	اسم المستلم	كل الأنواع
+
+client_match_method	string	طريقة مطابقة العميل	كل الأنواع
+
+
+
+
+---
+
+
+Asset / Provider Section (قابل للتكيف)
+
+
+Field	Type	Description	Notes / Usage
+
+
+asset_or_provider_name	string	اسم مزود الخدمة أو العملة	Crypto: الشبكة/مزود، Cash: البنك
+
+network_or_id	string	عنوان محفظة أو رقم حساب أو ID منصة	Crypto Outflow: wallet address، Cash Outflow: رقم الحساب البنكي
+
+is_whitelisted	boolean	لتسهيل auto-fill	فقط Outflow
+
+
+
+
+---
+
+
+Blockchain / Reference Section (قابل للتكيف)
+
+
+Field	Type	Description	Notes / Usage
+
+
+txid_or_reference_number	string	TxID للكريبتو أو رقم الحوالة البنكية	يتغير حسب النوع
+
+block_number_or_batch_id	int/string	رقم البلوك أو Batch ID	Crypto فقط أو دفعات Cash
+
+documents	JSONB	ملفات داعمة	كل الأنواع
+
+notes	string	ملاحظات عامة	كل الأنواع
+
+endpoint_text	string	نص المصدر الخام	كل الأنواع
+
+
+
+
+---
+
+
+Logs Section
+
+
+Field	Type	Description	Notes
+
+
+log_events	JSONB	كل أحداث النظام	كل الأنواع
+
+
+
+
+---
+
+
+تمام، دعنا نركز على حالات الـ processing في الـ record. هذه نقطة مهمة جدًا لأنها تتحكم في سير العمل، الأتمتة، وتتبع الأخطاء. سأقترح لك نموذج واضح ونناقشه.
+
+
+
+---
+
+
+1️⃣ مفهوم processing_stage
+
+
+processing_stage يحدد المرحلة التي وصل لها السجل داخل النظام. كل حالة تعكس وضعًا محددًا للسجل: هل مجرد تسجيل، مطابقة يدوية أو تلقائية، تم تأكيده، أو تم استخدامه في transaction.
+
+
+الهدف:
+
+
+تتبع الأخطاء
+
+
+التحكم في من يمكنه تعديل السجل
+
+
+معرفة ما إذا كان يمكن استخدامه في transaction أو لا
+
+
+
+
+---
+
+
+2️⃣ الحالات المقترحة لـ processing_stage
+
+
+الحالة	متى تظهر	التأثير / ما يسمح به	ملاحظات
+
+
+recorded	عند تسجيل أي record جديد (يدويًا أو تلقائيًا)	السجل موجود في النظام، يمكن التعديل، لا يمكن ربطه ب transaction بعد	البداية لجميع السجلات
+
+manual_matched	بعد أن يقوم موظف بالمطابقة اليدوية مع العميل أو مصدر البيانات	يسمح بالتحويل إلى confirmed بعد تحقق الموظف	تستخدم عندما لا يتم المطابقة تلقائيًا
+
+auto_matched	بعد مطابقة record تلقائيًا عبر قواعد النظام / API / parsing	يمكن التأكيد تلقائيًا أو مراجعة	يستخدم للأتمتة، يقلل العمل اليدوي
+
+confirmed	بعد مراجعة نهائية من الموظف أو بعد التأكيد التلقائي	يمكن استخدام السجل في transaction	هذه المرحلة قبل الاستخدام الفعلي
+
+used	بعد ربط record ب transaction وإنشاء القيود المحاسبية	لا يمكن استخدام السجل مرة أخرى في أي transaction	يحمي من التكرار والازدواجية
+
+
+
+
+---
+
+

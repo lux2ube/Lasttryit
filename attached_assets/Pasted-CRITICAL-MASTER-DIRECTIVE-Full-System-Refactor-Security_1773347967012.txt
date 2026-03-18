@@ -1,0 +1,49 @@
+CRITICAL MASTER DIRECTIVE: Full System Refactor (Security, Decoupled Architecture, and Anti-Ban WhatsApp Persistence).
+
+You are instructed to completely refactor the current Node.js/Express application. Implement a strict decoupled architecture using the Adapter Pattern, ensuring the system works with Replit DB now and is ready for AWS/Supabase. Additionally, implement robust WhatsApp session persistence and anti-ban mechanics.
+
+Execute this exact pipeline:
+
+PHASE 1: ZERO-TRUST SECURITY PURGE
+
+Scan the repository and delete ANY hardcoded .pem files or private key strings immediately. Add *.pem and *.key to .gitignore.
+
+Refactor all credential logic to use process.env.
+
+PHASE 2: DECOUPLED DATABASE ADAPTER
+
+services/dbAdapter.js: Create this to handle Replit DB exclusively. Export saveNotification(data) (saves with 'pending' status) and updateStatus(id, newStatus). DO NOT import WhatsApp logic here.
+
+PHASE 3: PERSISTENT & ANTI-BAN WHATSAPP SERVICE
+
+services/whatsappService.js: Handle ALL whatsapp-web.js logic here.
+
+Persistence: Initialize the client using LocalAuth to save the session locally. This is mandatory so we don't scan the QR code on every restart.
+
+Puppeteer Config: Configure puppeteer with arguments required for headless Linux/AWS environments: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'].
+
+Anti-Ban Logic: Export sendMessage(phone, message). Inside this function, implement a random delay (e.g., 2000ms to 5000ms) before sending to simulate human typing and prevent spam bans.
+
+Event Listeners: Add listeners for 'qr', 'ready', 'disconnected', and 'auth_failure' with clear console logging for the server environment.
+
+PHASE 4: ASYNCHRONOUS CONTROLLER HANDOFF
+
+controllers/notificationController.js: Create handleNotificationRequest(req, res).
+
+Strict Flow:
+
+Await dbAdapter.saveNotification(req.body).
+
+IMMEDIATELY return res.status(200).json({ success: true, message: "Processing" }) to close the HTTP connection.
+
+Asynchronously execute whatsappService.sendMessage without blocking the HTTP response.
+
+On resolve/reject, update the DB via dbAdapter.updateStatus.
+
+PHASE 5: ROUTING & AWS DEPLOYMENT
+
+Route POST /api/notifications in index.js.
+
+Create an ecosystem.config.js for PM2 AWS deployment.
+
+Output only the backend files strictly adhering to these constraints."

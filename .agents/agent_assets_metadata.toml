@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "AKuKqi_7oCVlh6B9nCbFN"
+uri = "file://docs/whatsapp-notification-architecture.md"
+type = "text"
+title = "WhatsApp Notification Architecture — FOMS"
