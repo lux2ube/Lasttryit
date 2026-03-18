@@ -1,0 +1,2 @@
+[functions.sms-ingest]
+verify_jwt = false
