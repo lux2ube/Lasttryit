@@ -211,9 +211,9 @@ export default function Webhooks() {
     publicConfig
       ? `${publicConfig.supabaseRestUrl}/sms_raw_inbox?apikey=${publicConfig.supabaseAnonKey}`
       : "";
-  // JSON body template for Forward SMS app — uses %message% / %sender% variables
+  // JSON body template for Forward SMS app — uses {msg} / {from} variables (Forward SMS app syntax)
   const supabaseBodyTemplate = (slug: string) =>
-    `{"slug":"${slug}","raw_message":"%message%","sender":"%sender%"}`;
+    `{"slug":"${slug}","raw_message":"{msg}","sender":"{from}"}`;
   // Required headers (Content-Type is the only one needed when apikey is in the URL)
   const supabaseRequiredHeaders = `Content-Type: application/json\nPrefer: return=minimal`;
 
@@ -499,60 +499,82 @@ export default function Webhooks() {
 
           {selectedConfig && (
             <Card className="border-slate-200 dark:border-slate-700">
-              <CardHeader className="pb-2 pt-4 px-5">
-                <div className="flex items-center justify-between">
+              <CardHeader className="pb-3 pt-4 px-5">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-primary" />
-                      Forward SMS App Configuration
+                      <Inbox className="w-4 h-4 text-primary" />
+                      Forward SMS → Supabase Direct
+                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">Serverless-safe</Badge>
                     </CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Endpoint: <span className="font-medium text-foreground">{selectedConfig.name}</span>
-                      <span className="ml-2 text-emerald-600 dark:text-emerald-400 font-medium flex-inline items-center gap-1">
-                        · RLS secured — anon key can only INSERT into this inbox
-                      </span>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      SMS lands straight in the database — your Vercel app is never in the path.<br />
+                      FOMS reads and processes the inbox on its own schedule.
                     </p>
                   </div>
-                  <Badge variant="outline" className="text-xs font-mono">{selectedConfig.slug}</Badge>
+                  <Badge variant="outline" className="text-xs font-mono shrink-0">{selectedConfig.slug}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="px-5 pb-5 space-y-4">
-                <Separator />
+              <CardContent className="px-5 pb-5 space-y-1">
 
-                {/* Step 1 — Method & URL */}
-                <div className="space-y-2">
+                {/* Architecture flow */}
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-2 flex-wrap">
+                  <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md font-medium text-foreground">
+                    📱 Phone
+                  </span>
+                  <span className="text-slate-400">→</span>
+                  <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md font-medium text-foreground">
+                    Forward SMS App
+                  </span>
+                  <span className="text-slate-400">→</span>
+                  <span className="flex items-center gap-1 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-1 rounded-md font-medium text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">
+                    Supabase REST API
+                  </span>
+                  <span className="text-slate-400">→</span>
+                  <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md font-medium text-foreground">
+                    sms_raw_inbox table
+                  </span>
+                  <span className="text-slate-400">→</span>
+                  <span className="flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-md font-medium text-primary">
+                    FOMS processes
+                  </span>
+                </div>
+
+                <Separator className="my-3" />
+
+                {/* Step 1 — URL */}
+                <div className="space-y-2 pt-1">
                   <div className="flex items-center gap-2">
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">1</span>
-                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Method & Endpoint URL</p>
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                      Endpoint URL
+                      <span className="ml-2 normal-case font-normal text-muted-foreground">— set Method to POST</span>
+                    </p>
                   </div>
-                  <div className="ml-7 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge className="text-[10px] px-2 py-0 font-mono bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0">POST</Badge>
-                      <span className="text-xs text-muted-foreground">method in your SMS forwarder app</span>
-                    </div>
+                  <div className="ml-7 space-y-1.5">
                     <div className="flex items-center gap-2">
                       <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono break-all leading-relaxed" data-testid={`text-supabase-url-${selectedConfig.slug}`}>
                         {supabaseEndpointUrl(selectedConfig.slug) || "Loading…"}
                       </code>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0"
                         data-testid={`button-copy-endpoint-${selectedConfig.slug}`}
-                        onClick={() => { copyToClipboard(supabaseEndpointUrl(selectedConfig.slug)); toast({ title: "Endpoint URL copied", description: "Paste this into your SMS forwarder app's URL field." }); }}>
+                        onClick={() => { copyToClipboard(supabaseEndpointUrl(selectedConfig.slug)); toast({ title: "URL copied", description: "Paste into the URL field of your SMS forwarder." }); }}>
                         <Copy className="w-3.5 h-3.5 mr-1.5" />Copy
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      The <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">apikey</code> is embedded in the URL — no custom headers needed for authentication.
+                      The <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">apikey</code> is already in the URL — no extra authentication headers needed.
                     </p>
                   </div>
                 </div>
 
                 {/* Step 2 — Headers */}
-                <div className="space-y-2">
+                <div className="space-y-2 pt-2">
                   <div className="flex items-center gap-2">
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">2</span>
-                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Required Headers</p>
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Headers</p>
                   </div>
-                  <div className="ml-7 space-y-2">
+                  <div className="ml-7">
                     <div className="flex items-center gap-2">
                       <pre className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono whitespace-pre-wrap leading-relaxed">
                         {supabaseRequiredHeaders}
@@ -565,38 +587,39 @@ export default function Webhooks() {
                   </div>
                 </div>
 
-                {/* Step 3 — Body Template */}
-                <div className="space-y-2">
+                {/* Step 3 — Body */}
+                <div className="space-y-2 pt-2">
                   <div className="flex items-center gap-2">
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">3</span>
-                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Body Template <span className="normal-case font-normal text-muted-foreground">(JSON)</span></p>
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Body <span className="normal-case font-normal text-muted-foreground">(JSON — paste into Body Template field)</span></p>
                   </div>
-                  <div className="ml-7 space-y-2">
+                  <div className="ml-7 space-y-1.5">
                     <div className="flex items-center gap-2">
                       <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-xs font-mono break-all leading-relaxed" data-testid={`text-body-template-${selectedConfig.slug}`}>
                         {supabaseBodyTemplate(selectedConfig.slug)}
                       </code>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0"
-                        onClick={() => { copyToClipboard(supabaseBodyTemplate(selectedConfig.slug)); toast({ title: "Body template copied", description: "Paste into the Body / Message Template field of your app." }); }}>
+                        onClick={() => { copyToClipboard(supabaseBodyTemplate(selectedConfig.slug)); toast({ title: "Body template copied" }); }}>
                         <Copy className="w-3.5 h-3.5 mr-1.5" />Copy
                       </Button>
                     </div>
-                    <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5">
-                      <p className="font-semibold">Template variables — replace with your app's property names:</p>
-                      <p><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">%message%</code> → the SMS message body (or your app's equivalent variable)</p>
-                      <p><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">%sender%</code> → the sender phone number (or your app's equivalent variable)</p>
+                    <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+                      <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{"{msg}"}</code> = message body &nbsp;·&nbsp;
+                      <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{"{from}"}</code> = sender number
+                      <span className="ml-1 text-amber-600 dark:text-amber-400">(Forward SMS app built-in variables)</span>
                     </div>
                   </div>
                 </div>
 
-                <Separator />
-                <div className="flex items-start gap-2 rounded-md bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-[11px] text-muted-foreground">
+                <Separator className="mt-4 mb-3" />
+
+                {/* Security note */}
+                <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-foreground">Security:</strong> Row Level Security (RLS) is enabled on all database tables.
-                    The public API key above can only INSERT into <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sms_raw_inbox</code> —
-                    the 3 fields <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">raw_message</code>,
-                    and <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code> only. No other tables or data are accessible.
+                    <strong className="text-foreground">RLS-secured:</strong> The public key above is locked to INSERT-only on <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sms_raw_inbox</code> —
+                    fields <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">raw_message</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code> only.
+                    No reads, no deletes, no other tables accessible.
                   </span>
                 </div>
               </CardContent>
@@ -743,26 +766,27 @@ export default function Webhooks() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Forward SMS App — Quick Reference */}
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <p className="text-sm font-semibold flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-primary" />
-                      Forward SMS App — Quick Reference
+                {/* Forward SMS App — Configuration Summary */}
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <p className="text-xs font-semibold flex items-center gap-2 text-foreground">
+                      <Inbox className="w-3.5 h-3.5 text-primary" />
+                      Forward SMS → Supabase Direct
                     </p>
-                    <Badge variant="outline" className="text-xs font-mono">{selectedConfig.slug}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">Serverless-safe</Badge>
+                      <Badge variant="outline" className="text-xs font-mono">{selectedConfig.slug}</Badge>
+                    </div>
                   </div>
                   <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {/* Method */}
-                    <div className="grid grid-cols-[100px_1fr] items-center px-4 py-2.5 gap-3 text-xs">
-                      <span className="font-semibold text-muted-foreground uppercase tracking-wide">Method</span>
+                    <div className="grid grid-cols-[90px_1fr] items-center px-4 py-2.5 gap-3 text-xs">
+                      <span className="font-semibold text-muted-foreground">Method</span>
                       <Badge className="w-fit text-[10px] px-2 py-0 font-mono bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0">POST</Badge>
                     </div>
-                    {/* URL */}
-                    <div className="grid grid-cols-[100px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
-                      <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">URL</span>
+                    <div className="grid grid-cols-[90px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
+                      <span className="font-semibold text-muted-foreground pt-2">URL</span>
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed" data-testid="text-test-url">
+                        <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed text-[11px]" data-testid="text-test-url">
                           {supabaseEndpointUrl(selectedConfig.slug) || "Loading…"}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
@@ -772,11 +796,10 @@ export default function Webhooks() {
                         </Button>
                       </div>
                     </div>
-                    {/* Headers */}
-                    <div className="grid grid-cols-[100px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
-                      <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Headers</span>
+                    <div className="grid grid-cols-[90px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
+                      <span className="font-semibold text-muted-foreground pt-2">Headers</span>
                       <div className="flex items-center gap-2">
-                        <pre className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono whitespace-pre-wrap leading-relaxed">
+                        <pre className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono whitespace-pre-wrap leading-relaxed text-[11px]">
                           {supabaseRequiredHeaders}
                         </pre>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
@@ -785,11 +808,10 @@ export default function Webhooks() {
                         </Button>
                       </div>
                     </div>
-                    {/* Body */}
-                    <div className="grid grid-cols-[100px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
-                      <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Body</span>
+                    <div className="grid grid-cols-[90px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
+                      <span className="font-semibold text-muted-foreground pt-2">Body</span>
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed">
+                        <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed text-[11px]">
                           {supabaseBodyTemplate(selectedConfig.slug)}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
@@ -798,9 +820,11 @@ export default function Webhooks() {
                         </Button>
                       </div>
                     </div>
-                    {/* Note */}
-                    <div className="px-4 py-2.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">
-                      Replace <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">%message%</code> and <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">%sender%</code> with your app's SMS variable names.
+                    <div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50/60 dark:bg-amber-900/20 flex items-center gap-2">
+                      <span>
+                        <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{"{msg}"}</code> = message body &nbsp;·&nbsp;
+                        <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{"{from}"}</code> = sender number — Forward SMS app built-in variables
+                      </span>
                     </div>
                   </div>
                 </div>
