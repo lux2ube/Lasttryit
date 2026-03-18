@@ -632,6 +632,11 @@ export class DatabaseStorage implements IStorage {
       const existing = await this.getSettingByKey(s.key);
       if (!existing) await db.insert(systemSettings).values(s);
     }
+
+    // Ensure the 'admin' username always has the 'admin' role (guard against accidental downgrades)
+    await db.update(staffUsers)
+      .set({ role: 'admin' })
+      .where(and(eq(staffUsers.username, 'admin'), ne(staffUsers.role, 'admin')));
   }
 
   // ─── Configuration Initialization ─────────────────────────────────────────
@@ -2337,10 +2342,14 @@ export class DatabaseStorage implements IStorage {
       const effectiveWithdrawFee = hasOverride && !isNaN(recFeeRate) ? recFeeRate : withdrawFeeRate;
       const effectiveDepositFee  = hasOverride && !isNaN(recFeeRate) ? recFeeRate : depositFeeRate;
 
+      // Minimum service fee: never charge between $0.01 and $1.00 — floor is $1 USD
+      const MIN_SERVICE_FEE_USD = 1.0;
+
       if (rec.direction === 'inflow') {
-        const feePct      = effectiveWithdrawFee / 100;
-        const feeUsd      = amount * feePct;
-        const customerNet = Math.max(0, suspenseAmount - feeUsd);
+        const feePct         = effectiveWithdrawFee / 100;
+        const rawFeeUsd      = amount * feePct;
+        const feeUsd         = rawFeeUsd > 0 && rawFeeUsd < MIN_SERVICE_FEE_USD ? MIN_SERVICE_FEE_USD : rawFeeUsd;
+        const customerNet    = Math.max(0, suspenseAmount - feeUsd);
         projectedProfit = feeUsd;
         feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: feeUsd, networkFeeUsd: 0, effectiveFeeRate: effectiveWithdrawFee, spreadUsd: 0, spreadRate: 0, clientLiabilityUsd: customerNet };
 
@@ -2348,15 +2357,16 @@ export class DatabaseStorage implements IStorage {
           suspenseAmount, 0, `[CONFIRM-CLR] Clear suspense — ${ref}`);
         addLine(customerAcctCode, customerAcctName,
           0, customerNet > 0 ? customerNet : suspenseAmount,
-          `[CONFIRM] Net to customer (after ${effectiveWithdrawFee}% fee) — ${ref} | ${custName}`,
+          `[CONFIRM] Net to customer (after ${effectiveWithdrawFee}% fee, min $${MIN_SERVICE_FEE_USD}) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         if (feeUsd > 0.0001) {
           addLine('4101', 'Service Fee Income', 0, feeUsd,
-            `[P&L] Withdraw fee ${effectiveWithdrawFee}% — ${ref}`);
+            `[P&L] Withdraw fee ${effectiveWithdrawFee}% (min $${MIN_SERVICE_FEE_USD}) — ${ref}`);
         }
       } else {
         const feePct          = effectiveDepositFee / 100;
-        const feeUsd          = amount * feePct;
+        const rawFeeUsd       = amount * feePct;
+        const feeUsd          = rawFeeUsd > 0 && rawFeeUsd < MIN_SERVICE_FEE_USD ? MIN_SERVICE_FEE_USD : rawFeeUsd;
         const netFee          = networkFeeUsd;
         const customerCharge  = suspenseAmount + feeUsd + netFee;
         projectedProfit = feeUsd + netFee;
@@ -2364,11 +2374,11 @@ export class DatabaseStorage implements IStorage {
 
         addLine(customerAcctCode, customerAcctName,
           customerCharge, 0,
-          `[CONFIRM] Customer charge (${rec.currency} + ${effectiveDepositFee}% + $${netFee} gas) — ${ref} | ${custName}`,
+          `[CONFIRM] Customer charge (${rec.currency} + ${effectiveDepositFee}% min $${MIN_SERVICE_FEE_USD} + $${netFee} gas) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         addLine('2101', 'Customer Credits - Unmatched',
           0, suspenseAmount, `[CONFIRM-CLR] Clear suspense — ${ref}`);
-        if (feeUsd  > 0.0001) addLine('4101', 'Service Fee Income',   0, feeUsd,  `[P&L] Deposit fee ${effectiveDepositFee}% — ${ref}`);
+        if (feeUsd  > 0.0001) addLine('4101', 'Service Fee Income',   0, feeUsd,  `[P&L] Deposit fee ${effectiveDepositFee}% (min $${MIN_SERVICE_FEE_USD}) — ${ref}`);
         if (netFee  > 0.0001) addLine('4301', 'Network Fee Recovery', 0, netFee,  `[P&L] Network fee — ${ref}`);
       }
     }
