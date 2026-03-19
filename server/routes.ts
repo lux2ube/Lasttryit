@@ -312,6 +312,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         baseData.blacklistCheckedAt = new Date();
       }
 
+      // Resolve group UUID from code when loyaltyGroup is provided
+      if (baseData.loyaltyGroup) {
+        const allGrps = await db.select().from(customerGroups).where(eq(customerGroups.isActive, true));
+        const code = String(baseData.loyaltyGroup).toLowerCase().trim();
+        const grp = allGrps.find(g => g.code.toLowerCase().trim() === code);
+        if (grp) baseData.groupId = grp.id;
+      }
+
       const customer = await storage.createCustomer(baseData, actorId(req) ?? undefined);
       await storage.createAuditLog({ entityType: 'customer', entityId: customer.id, action: 'created', actorId: actorId(req), actorName: null, before: null, after: customer, ipAddress: req.ip ?? null });
       res.status(201).json({ customer, blacklistHits: hits });
@@ -354,6 +362,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (willBeBlacklisted) {
         if (patch.customerStatus === "active")     patch.customerStatus     = "suspended";
         if (patch.verificationStatus === "verified") patch.verificationStatus = "blocked";
+      }
+
+      // When loyaltyGroup code is changed, resolve the group UUID and save it
+      if (typeof patch.loyaltyGroup === "string") {
+        const allGrps = await db.select().from(customerGroups).where(eq(customerGroups.isActive, true));
+        const code = patch.loyaltyGroup.toLowerCase().trim();
+        const grp = allGrps.find(g => g.code.toLowerCase().trim() === code);
+        patch.groupId = grp?.id ?? null;
       }
 
       const updated = await storage.updateCustomer(req.params.id, patch);
@@ -623,9 +639,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.json({ suspended: true, group: null, rateOverrides: [], feeOverrides: [], recordLimits: null });
       }
 
-      const groupCode = customer.loyaltyGroup || "standard";
       const allGroups = await db.select().from(customerGroups).where(eq(customerGroups.isActive, true));
-      const group = allGroups.find(g => g.code === groupCode);
+      // Prefer UUID lookup (groupId), then case-insensitive code match, then default "standard"
+      let group = (customer as any).groupId
+        ? allGroups.find(g => g.id === (customer as any).groupId) ?? null
+        : null;
+      if (!group && customer.loyaltyGroup) {
+        const code = customer.loyaltyGroup.toLowerCase().trim();
+        group = allGroups.find(g => g.code.toLowerCase().trim() === code) ?? null;
+      }
+      if (!group) {
+        group = allGroups.find(g => g.code.toLowerCase() === "standard") ?? null;
+      }
 
       if (!group) {
         return res.json({ suspended: false, group: null, rateOverrides: [], feeOverrides: [], recordLimits: null });

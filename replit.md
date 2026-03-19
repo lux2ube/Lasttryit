@@ -2,7 +2,7 @@
 ## Branding
 - **Logo**: `/coincash-logo.png` (public directory, 234KB PNG) — used in invoice
 - **Brand colors**: Navy `#1a1a2e` + Gold `#F5A623` + White
-- **Invoice system**: `client/src/components/record-invoice.tsx` — html2canvas PNG download, shown on all confirmed records
+- **Invoice system**: `client/src/components/record-invoice.tsx` — dom-to-image-more PNG download (SVG foreignObject renderer, properly handles Arabic RTL text shaping). Pre-renders blob when invoice dialog opens so download is instant. Shown on all confirmed records.
 
 
 ## Overview

@@ -579,7 +579,7 @@ export default function SendCrypto() {
                   <span className="font-mono">{usdtToSend > 0 ? usdtToSend.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : "—"} USDT</span>
                 </div>
                 <div className="px-3 py-1.5 flex justify-between text-muted-foreground">
-                  <span>Service fee ({feeRate}%){minFeeApplied ? " — min $1" : ""}</span>
+                  <span>Service fee {minFeeApplied ? `(min $1 — ${feeRate}% < $1)` : `(${feeRate}%)`}</span>
                   <span className="font-mono">{feeUsd > 0 ? `+$${feeUsd.toLocaleString("en-US", { minimumFractionDigits: 4 })}` : "—"}</span>
                 </div>
                 {networkFee > 0 && (
@@ -744,7 +744,7 @@ export default function SendCrypto() {
                 </div>
                 <div className="px-3 py-2 space-y-0.5">
                   <Row label="USDT on-chain" value={<span className="font-mono">{parseFloat(preview.usdtAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })} USDT</span>} />
-                  <Row label={`Service fee (${parseFloat(preview.depositFeeRate).toFixed(2)}%)${preview.minFeeApplied ? " — min $1" : ""}`} value={<span className="font-mono">+${parseFloat(preview.depositFeeFiat).toLocaleString("en-US", { minimumFractionDigits: 4 })}</span>} />
+                  <Row label={preview.minFeeApplied ? `Service fee (min $1 — ${parseFloat(preview.depositFeeRate).toFixed(2)}% < $1)` : `Service fee (${parseFloat(preview.depositFeeRate).toFixed(2)}%)`} value={<span className="font-mono">+${parseFloat(preview.depositFeeFiat).toLocaleString("en-US", { minimumFractionDigits: 4 })}</span>} />
                   {parseFloat(preview.networkFeeUsd) > 0 && (
                     <Row label="Network / gas fee" value={<span className="font-mono">+${parseFloat(preview.networkFeeUsd).toFixed(4)}</span>} />
                   )}

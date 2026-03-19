@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import html2canvas from "html2canvas";
+import domtoimage from "dom-to-image-more";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
@@ -428,32 +428,21 @@ async function backfillFeeFromJE(record: FinancialRecord): Promise<FinancialReco
 
 // ── Download: from an already-rendered ref (fast path) ────────────────────────
 
+async function blobToDownload(el: HTMLElement, filename: string) {
+  const blob = await domtoimage.toBlob(el, { scale: 2, bgcolor: "#ffffff" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadInvoiceFromElement(
   el: HTMLElement,
   filename: string,
 ): Promise<void> {
-  const logoDataUrl = await getLogoDataUrl();
-  // Swap any img[src="/coincash-logo.png"] to data URL for clean capture
-  const imgs = el.querySelectorAll<HTMLImageElement>('img[src="/coincash-logo.png"]');
-  const origSrcs: string[] = [];
-  imgs.forEach((img, i) => { origSrcs[i] = img.src; img.src = logoDataUrl; });
-  await Promise.all([
-    document.fonts.load("700 16px 'Cairo'"),
-    document.fonts.load("400 16px 'Cairo'"),
-    document.fonts.ready,
-  ]);
-  try {
-    const canvas = await html2canvas(el, {
-      scale: 2, useCORS: false, allowTaint: true,
-      backgroundColor: "#ffffff", logging: false,
-    });
-    const link = document.createElement("a");
-    link.download = filename;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  } finally {
-    imgs.forEach((img, i) => { img.src = origSrcs[i]; });
-  }
+  await blobToDownload(el, filename);
 }
 
 // ── Download hook (fallback: hidden render, for card row buttons) ─────────────
@@ -484,15 +473,7 @@ export function useInvoiceDownload() {
       ]);
 
       const el = container.firstElementChild as HTMLElement;
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: false, allowTaint: true,
-        backgroundColor: "#ffffff", logging: false,
-      });
-
-      const link = document.createElement("a");
-      link.download = `${record.recordNumber}-receipt.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
+      await blobToDownload(el, `${record.recordNumber}-receipt.png`);
 
       root.unmount();
       document.body.removeChild(container);
@@ -574,6 +555,8 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [enriched, setEnriched] = useState<FinancialRecord>(record);
   const [downloading, setDownloading] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logoSrc, setLogoSrc] = useState("/coincash-logo.png");
 
@@ -582,15 +565,48 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
     backfillFeeFromJE(record).then(setEnriched);
   }, [record.id]);
 
-  const handleDownload = async () => {
+  // Pre-build the PNG blob as soon as the invoice is fully rendered (logo + fee data ready)
+  useEffect(() => {
+    if (!logoSrc.startsWith("data:") || !invoiceRef.current) return;
+    let cancelled = false;
+    const el = invoiceRef.current;
+    setBlobUrl(null);
+    setBuilding(true);
+    const timer = setTimeout(() => {
+      domtoimage
+        .toBlob(el, { scale: 2, bgcolor: "#ffffff" })
+        .then((blob: Blob) => {
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+        })
+        .catch((e: unknown) => console.error("Invoice pre-build failed:", e))
+        .finally(() => { if (!cancelled) setBuilding(false); });
+    }, 80);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [enriched, logoSrc]);
+
+  const handleDownload = useCallback(async () => {
+    const filename = `${record.recordNumber}-receipt.png`;
+    if (blobUrl) {
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      a.click();
+      return;
+    }
+    // Fallback: build on click if pre-build wasn't ready
     if (!invoiceRef.current) return;
     setDownloading(true);
     try {
-      await downloadInvoiceFromElement(invoiceRef.current, `${record.recordNumber}-receipt.png`);
+      await blobToDownload(invoiceRef.current, filename);
     } finally {
       setDownloading(false);
     }
-  };
+  }, [blobUrl, record.recordNumber]);
 
   const handleCopy = async () => {
     const msg = buildWhatsAppMessage(enriched, customer);
@@ -626,11 +642,11 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
           variant="outline"
           className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400"
           onClick={handleDownload}
-          disabled={downloading}
+          disabled={downloading || building}
           data-testid={`button-download-${record.id}`}
         >
-          {downloading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-          Download
+          {(downloading || building) ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+          {building ? "Preparing…" : "Download"}
         </Button>
       </div>
 

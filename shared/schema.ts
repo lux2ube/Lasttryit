@@ -183,6 +183,7 @@ export const customers = pgTable("customers", {
   riskLimits: jsonb("risk_limits"),
   // Loyalty & Referral
   loyaltyGroup: text("loyalty_group").default("standard"),
+  groupId: varchar("group_id"),
   // serviceDiscounts: JSONB array of { service: string, txType: string, discountRate: number }
   serviceDiscounts: jsonb("service_discounts"),
   referralParentId: varchar("referral_parent_id"),

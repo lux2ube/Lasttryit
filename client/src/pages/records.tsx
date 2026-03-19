@@ -1027,7 +1027,7 @@ function RecordFormPage({
               <span style="font-weight:700;font-family:monospace;color:${NAVY};font-size:13px;">${amtDisplay} USDT</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e0d9ff;background:#fffbf0;">
-              <span style="color:#b45309;font-size:13px;">${isOut ? `Service fee (${cryptoFeeInfo.feeRate}%)` : `Withdraw fee (${cryptoFeeInfo.feeRate}%)`}${cryptoFeeInfo.minFeeApplied ? " — min $1" : ""}</span>
+              <span style="color:#b45309;font-size:13px;">${cryptoFeeInfo.minFeeApplied ? `${isOut ? "Service" : "Withdraw"} fee (min $1 — ${cryptoFeeInfo.feeRate}% &lt; $1)` : `${isOut ? "Service" : "Withdraw"} fee (${cryptoFeeInfo.feeRate}%)`}</span>
               <span style="font-weight:600;font-family:monospace;color:#b45309;font-size:13px;">${isOut ? "+" : "−"}$${cryptoFeeInfo.feeUsd.toFixed(4)}</span>
             </div>
             ${isOut && cryptoFeeInfo.networkFee > 0 ? `
