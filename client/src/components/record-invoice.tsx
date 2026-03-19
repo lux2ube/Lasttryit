@@ -200,27 +200,26 @@ const AR_FONT   = "'Cairo', Tahoma, Arial, sans-serif";
 const W = "540px";
 const H = "960px";
 
-// ── Tiny helpers (internal to template) ───────────────────────────────────────
+// ── Tiny helpers (internal to template, no border props) ─────────────────────
 
 const HR = () => (
-  <div style={{ height: "1px", background: "rgba(0,0,0,0.07)", margin: "0 28px" }} />
+  <div style={{ height: "1px", background: "rgba(0,0,0,0.06)", margin: "0 24px" }} />
 );
 
+// Section band uses a background-div accent bar instead of borderLeft (avoids CSS-reset conflict)
 const SectionBand = ({ en, ar }: { en: string; ar?: string }) => (
-  <div style={{
-    padding: "9px 28px 7px",
-    background: "rgba(245,166,35,0.10)",
-    borderLeft: `4px solid ${GOLD}`,
-    display: "flex", alignItems: "center", gap: "8px",
-  }}>
-    <span style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "1.4px", textTransform: "uppercase", color: GOLD_DARK }}>
-      {en}
-    </span>
-    {ar && (
-      <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", fontSize: "11px", fontWeight: 600, color: GOLD_DARK, textTransform: "none", letterSpacing: 0 }}>
-        · {ar}
+  <div style={{ display: "flex", alignItems: "stretch", background: "rgba(245,166,35,0.08)" }}>
+    <div style={{ width: "4px", background: GOLD, flexShrink: 0 }} />
+    <div style={{ padding: "7px 20px 6px", display: "flex", alignItems: "center", gap: "8px" }}>
+      <span style={{ fontSize: "9px", fontWeight: 800, letterSpacing: "1.4px", textTransform: "uppercase", color: GOLD_DARK }}>
+        {en}
       </span>
-    )}
+      {ar && (
+        <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", fontSize: "10px", fontWeight: 600, color: GOLD_DARK }}>
+          · {ar}
+        </span>
+      )}
+    </div>
   </div>
 );
 
@@ -230,23 +229,23 @@ const F = ({ label, labelAr, value, mono, accent, large, hash, small }: {
 }) => {
   if (!value && value !== 0) return null;
   return (
-    <div style={{ padding: "10px 28px" }}>
-      <div style={{ fontSize: "9px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "3px", display: "flex", alignItems: "center", gap: "6px" }}>
+    <div style={{ padding: "8px 24px" }}>
+      <div style={{ fontSize: "8px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "2px", display: "flex", alignItems: "center", gap: "5px" }}>
         {label}
         {labelAr && (
-          <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "10px" }}>
+          <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "9px" }}>
             · {labelAr}
           </span>
         )}
       </div>
       <div style={{
-        fontSize: large ? "17px" : small ? "11px" : "14px",
+        fontSize: large ? "15px" : small ? "10.5px" : "13px",
         fontWeight: large ? 700 : 600,
         fontFamily: mono ? MONO_FONT : "inherit",
         color: accent ?? TEXT,
         wordBreak: hash ? "break-all" : "normal",
         overflowWrap: hash ? "break-word" : "normal",
-        lineHeight: 1.4,
+        lineHeight: 1.35,
       }}>
         {value}
       </div>
@@ -260,16 +259,16 @@ const R2 = ({ left, right }: {
 }) => {
   if (!left.value && !right.value) return null;
   return (
-    <div style={{ display: "flex", padding: "10px 28px", gap: "20px" }}>
+    <div style={{ display: "flex", padding: "8px 24px", gap: "16px" }}>
       {[left, right].map((col, i) => (
         <div key={i} style={{ flex: 1, minWidth: 0 }}>
           {col.value ? (
             <>
-              <div style={{ fontSize: "9px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "3px", display: "flex", gap: "5px", alignItems: "center" }}>
+              <div style={{ fontSize: "8px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "2px", display: "flex", gap: "4px", alignItems: "center" }}>
                 {col.label}
-                {col.labelAr && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "10px" }}>· {col.labelAr}</span>}
+                {col.labelAr && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "9px" }}>· {col.labelAr}</span>}
               </div>
-              <div style={{ fontSize: col.small ? "11px" : "14px", fontWeight: 600, color: col.accent ?? TEXT, fontFamily: col.mono ? MONO_FONT : "inherit", lineHeight: 1.4 }}>
+              <div style={{ fontSize: col.small ? "10.5px" : "13px", fontWeight: 600, color: col.accent ?? TEXT, fontFamily: col.mono ? MONO_FONT : "inherit", lineHeight: 1.35 }}>
                 {col.value}
               </div>
             </>
@@ -280,7 +279,7 @@ const R2 = ({ left, right }: {
   );
 };
 
-// ── Invoice Template — 1080×1920 receipt ─────────────────────────────────────
+// ── Invoice Template — 1080×1920 receipt (540×960 element, scale:2) ───────────
 
 export function InvoiceTemplate({
   record, customer, logoSrc,
@@ -325,84 +324,99 @@ export function InvoiceTemplate({
   const showBreakdown = totalClientAmount !== null && principalUsd !== null && Math.abs(totalClientAmount - principalUsd) > 0.001;
 
   return (
-    <div style={{
+    <div id="ccr" style={{
       width: W,
       height: H,
       background: WHITE,
       fontFamily: "'Segoe UI', 'Inter', system-ui, sans-serif",
       direction: "ltr",
       color: TEXT,
-      fontSize: "14px",
+      fontSize: "13px",
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
+      border: "0",
+      outline: "0",
     }}>
+      {/* ── CSS reset: kills SVG foreignObject box artifacts in dom-to-image ── */}
+      <style>{`
+        #ccr, #ccr * {
+          box-sizing: border-box !important;
+          outline: 0 !important;
+          outline-width: 0 !important;
+          -webkit-tap-highlight-color: transparent !important;
+        }
+        #ccr div, #ccr span, #ccr p {
+          border: 0 !important;
+          border-width: 0 !important;
+        }
+        #ccr img { border: 0 !important; display: block !important; }
+      `}</style>
 
       {/* ══ HEADER ═══════════════════════════════════════════════════════════ */}
-      <div style={{ background: NAVY, padding: "30px 32px 24px", flexShrink: 0 }}>
+      <div style={{ background: NAVY, padding: "20px 26px 16px", flexShrink: 0, border: "0", outline: "0" }}>
         {/* Brand row */}
-        <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "14px" }}>
           <img
             src={logo}
-            alt="Coin Cash"
+            alt=""
             crossOrigin="anonymous"
-            style={{ width: "70px", height: "70px", objectFit: "contain", borderRadius: "16px", background: WHITE, padding: "5px", flexShrink: 0 }}
+            style={{ width: "52px", height: "52px", objectFit: "contain", borderRadius: "12px", background: WHITE, padding: "4px", flexShrink: 0, display: "block" }}
           />
           <div>
-            <div style={{ color: WHITE, fontSize: "30px", fontWeight: 900, lineHeight: 1.1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
-            <div style={{ color: GOLD, fontSize: "12px", fontWeight: 600, marginTop: "4px", letterSpacing: "0.4px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
+            <div style={{ color: WHITE, fontSize: "26px", fontWeight: 900, lineHeight: 1.1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
+            <div style={{ color: GOLD, fontSize: "11px", fontWeight: 600, marginTop: "3px", letterSpacing: "0.3px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
           </div>
         </div>
-        {/* Thin gold separator */}
-        <div style={{ height: "1px", background: "rgba(245,166,35,0.3)", marginBottom: "16px" }} />
+        {/* Gold separator */}
+        <div style={{ height: "1px", background: "rgba(245,166,35,0.25)", marginBottom: "12px" }} />
         {/* Record # + Date */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "4px" }}>Transaction Receipt</div>
-            <div style={{ color: WHITE, fontSize: "15px", fontFamily: MONO_FONT, fontWeight: 700, letterSpacing: "0.5px" }}>{record.recordNumber}</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "8px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "3px" }}>Transaction Receipt</div>
+            <div style={{ color: WHITE, fontSize: "13px", fontFamily: MONO_FONT, fontWeight: 700 }}>{record.recordNumber}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "4px" }}>Date</div>
-            <div style={{ color: WHITE, fontSize: "14px", fontWeight: 600 }}>{confirmedAt(record)}</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "8px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "3px" }}>Date</div>
+            <div style={{ color: WHITE, fontSize: "13px", fontWeight: 600 }}>{confirmedAt(record)}</div>
           </div>
         </div>
       </div>
 
       {/* ══ AMOUNT HERO ══════════════════════════════════════════════════════ */}
-      <div style={{ background: NAVY2, padding: "26px 32px 26px", flexShrink: 0 }}>
+      <div style={{ background: NAVY2, padding: "18px 26px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px" }}>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "6px" }}>
               {isInflow
                 ? <span>Total Credit · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
                 : <span>Total Debit · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
             </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-              <span style={{ color: WHITE, fontSize: "60px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2.5px" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+              <span style={{ color: WHITE, fontSize: "50px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2px" }}>
                 {displayTotal}
               </span>
-              <span style={{ color: GOLD, fontSize: "22px", fontWeight: 800, letterSpacing: "0.5px" }}>
+              <span style={{ color: GOLD, fontSize: "20px", fontWeight: 800 }}>
                 {displayCcy}
               </span>
             </div>
             {showBreakdown && (
-              <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "12px", marginTop: "7px", fontWeight: 500 }}>
+              <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "11px", marginTop: "5px", fontWeight: 500 }}>
                 {fmt(principalUsd!, 2)} {isInflow ? "−" : "+"} ${fmt(Math.abs(totalClientAmount! - principalUsd!), 2)} fees
               </div>
             )}
           </div>
-          {/* Direction badge */}
+          {/* Direction badge — no border, background only */}
           <div style={{
-            background: isInflow ? "rgba(74,222,128,0.15)" : "rgba(248,113,113,0.15)",
-            border: `2px solid ${isInflow ? "rgba(74,222,128,0.45)" : "rgba(248,113,113,0.45)"}`,
-            borderRadius: "16px",
-            padding: "12px 22px",
+            background: isInflow ? "rgba(74,222,128,0.18)" : "rgba(248,113,113,0.18)",
+            borderRadius: "14px",
+            padding: "10px 18px",
             textAlign: "center",
             flexShrink: 0,
-            marginLeft: "16px",
+            marginLeft: "14px",
           }}>
-            <div style={{ fontSize: "30px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
-            <div style={{ fontSize: "11px", fontWeight: 800, color: isInflow ? GREEN : "#F87171", marginTop: "5px", letterSpacing: "1px", textTransform: "uppercase" }}>
+            <div style={{ fontSize: "26px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
+            <div style={{ fontSize: "10px", fontWeight: 800, color: isInflow ? GREEN : "#F87171", marginTop: "4px", letterSpacing: "1px", textTransform: "uppercase" }}>
               {isInflow ? "Received" : "Sent"}
             </div>
           </div>
@@ -410,12 +424,11 @@ export function InvoiceTemplate({
       </div>
 
       {/* Gold accent bar */}
-      <div style={{ height: "4px", background: `linear-gradient(90deg, ${GOLD_DARK}, ${GOLD}, ${GOLD_DARK})`, flexShrink: 0 }} />
+      <div style={{ height: "3px", background: `linear-gradient(90deg, ${GOLD_DARK}, ${GOLD}, ${GOLD_DARK})`, flexShrink: 0 }} />
 
       {/* ══ DETAILS BODY ═════════════════════════════════════════════════════ */}
       <div style={{ flex: 1, background: WHITE, display: "flex", flexDirection: "column", overflowY: "hidden" }}>
 
-        {/* —— Transaction Details —— */}
         <SectionBand en="Transaction Details" ar="تفاصيل العملية" />
 
         <F label="Type" labelAr="نوع العملية" value={typeLabel(record.type, record.direction)} large />
@@ -465,7 +478,6 @@ export function InvoiceTemplate({
           <><HR /><F label="Block" value={record.blockNumberOrBatchId} mono /></>
         )}
 
-        {/* —— Client Info —— */}
         <SectionBand en="Client Info" ar="بيانات العميل" />
         <F label="Name" labelAr="الاسم" value={clientName} large />
         {customerId !== "—" && (
@@ -478,33 +490,27 @@ export function InvoiceTemplate({
           </>
         )}
 
-        {safeNotes && (
-          <>
-            <HR />
-            <F label="Note" value={safeNotes} />
-          </>
-        )}
+        {safeNotes && (<><HR /><F label="Note" value={safeNotes} /></>)}
 
-        {/* Spacer pushes footer to bottom */}
         <div style={{ flex: 1 }} />
 
-        {/* ── Inner footer brand strip ── */}
-        <div style={{ padding: "12px 28px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ color: "#9CA3AF", fontSize: "9px", letterSpacing: "1.2px", textTransform: "uppercase", fontWeight: 600 }}>
+        {/* Inner watermark strip */}
+        <div style={{ padding: "8px 24px", background: "rgba(0,0,0,0.02)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ color: "#C4C9D4", fontSize: "8px", letterSpacing: "1px", textTransform: "uppercase", fontWeight: 600 }}>
             Verified · Secure · Licensed
           </div>
-          <div style={{ color: "#9CA3AF", fontSize: "9px", fontFamily: MONO_FONT }}>
+          <div style={{ color: "#C4C9D4", fontSize: "8px", fontFamily: MONO_FONT }}>
             {record.recordNumber}
           </div>
         </div>
       </div>
 
       {/* ══ FOOTER ═══════════════════════════════════════════════════════════ */}
-      <div style={{ background: NAVY, padding: "20px 32px", flexShrink: 0, textAlign: "center" }}>
-        <div style={{ color: GOLD, fontSize: "18px", fontWeight: 700, fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", marginBottom: "6px" }}>
+      <div style={{ background: NAVY, padding: "16px 26px", flexShrink: 0, textAlign: "center" }}>
+        <div style={{ color: GOLD, fontSize: "16px", fontWeight: 700, fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", marginBottom: "4px" }}>
           شكراً لاختياركم كوين كاش
         </div>
-        <div style={{ color: "rgba(255,255,255,0.28)", fontSize: "9px", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600 }}>
+        <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "8px", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600 }}>
           Coin Cash — Trust · Speed · Integrity
         </div>
       </div>
@@ -688,7 +694,12 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
     const el = invoiceRef.current;
     setBlobUrl(null);
     setBuilding(true);
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      await Promise.all([
+        document.fonts.load("700 16px 'Cairo'"),
+        document.fonts.load("400 16px 'Cairo'"),
+        document.fonts.ready,
+      ]).catch(() => {});
       domtoimage
         .toBlob(el, { scale: 2, bgcolor: "#ffffff" })
         .then((blob: Blob) => {
