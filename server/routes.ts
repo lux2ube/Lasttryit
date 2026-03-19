@@ -838,76 +838,80 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         }
 
-        // ── Auto-register new crypto counterparty address into customer whitelist at match time ──
-        // This enables future Ankr-synced or manual records from the same address to be
-        // automatically matched to this customer without staff intervention.
+        // ── Auto-register counterparty address into customer whitelist at match time ──
         if (newStage === 'matched' && incomingCustomerId) {
           const recType = (patch.type ?? before.type) as string;
-          if (recType === 'crypto') {
-            const direction = (patch.direction ?? before.direction) as string;
-            // networkOrId always holds the counterparty wallet address (both inflow sender & outflow recipient)
-            const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
-            // network/chain label: prefer endpointName (set by Ankr sync, e.g. "usdt_bep20"),
-            // fallback to assetOrProviderName (e.g. "USDT BEP20") for manual records
-            const networkLabel = String(patch.endpointName ?? before.endpointName ?? patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
-            if (counterAddr.length > 5) {
-              const wallets = await storage.getCustomerWallets(incomingCustomerId);
-              const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
-              if (!alreadyKnown) {
-                await storage.createCustomerWallet({
-                  customerId: incomingCustomerId, direction: direction as any, type: 'crypto' as any,
-                  providerName: String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown'),
-                  network: networkLabel,
-                  addressOrId: counterAddr,
-                  label: `Auto-registered from ${before.recordNumber}`,
-                  isDefault: false, isActive: true,
-                }, actor ?? undefined);
-                patch.isWhitelisted = true;
-                // Append whitelist registration to the log
-                const existingMatchLog = patch.logEvents ?? (before.logEvents as any[] ?? []);
-                patch.logEvents = [...existingMatchLog,
-                  { action: 'address_whitelisted', by: actor, timestamp: new Date().toISOString(),
-                    address: counterAddr, network: networkLabel,
-                    note: `New ${direction} address auto-registered to customer whitelist` },
-                ];
-              } else {
-                patch.isWhitelisted = true;
+          const direction = (patch.direction ?? before.direction) as string;
+          const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
+          const recAccountId = (patch.accountId ?? before.accountId) as string | null;
+          let resolvedProviderId: string | null = null;
+          let resolvedProviderName = String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
+          let resolvedNetwork: string | null = null;
+          if (recAccountId) {
+            const recAcct = await storage.getAccount(recAccountId);
+            if (recAcct?.providerId) {
+              resolvedProviderId = recAcct.providerId;
+              const recProv = await storage.getProvider(recAcct.providerId);
+              if (recProv) {
+                resolvedProviderName = recProv.name;
+                resolvedNetwork = recProv.networkCode ?? null;
               }
             }
           }
-        }
 
-        // ── Auto-register cash outflow bank account into customer whitelist at match time ──
-        if (newStage === 'matched' && incomingCustomerId) {
-          const recType = (patch.type ?? before.type) as string;
-          if (recType === 'cash') {
-            const direction = (patch.direction ?? before.direction) as string;
-            if (direction === 'outflow') {
-              const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
-              const providerName = String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
-              if (counterAddr.length > 2) {
-                const wallets = await storage.getCustomerWallets(incomingCustomerId);
-                const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
-                if (!alreadyKnown) {
-                  await storage.createCustomerWallet({
-                    customerId: incomingCustomerId, direction: 'outflow', type: 'cash' as any,
-                    providerName,
-                    network: null,
-                    addressOrId: counterAddr,
-                    label: `Auto-registered from ${before.recordNumber}`,
-                    isDefault: false, isActive: true,
-                  }, actor ?? undefined);
-                  patch.isWhitelisted = true;
-                  const existingMatchLog = patch.logEvents ?? (before.logEvents as any[] ?? []);
-                  patch.logEvents = [...existingMatchLog,
-                    { action: 'cash_account_whitelisted', by: actor, timestamp: new Date().toISOString(),
-                      account: counterAddr, provider: providerName,
-                      note: `Cash outflow bank account auto-registered to customer whitelist` },
-                  ];
-                } else {
-                  patch.isWhitelisted = true;
-                }
+          if (recType === 'crypto' && counterAddr.length > 5) {
+            const wallets = await storage.getCustomerWallets(incomingCustomerId);
+            const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
+            if (!alreadyKnown) {
+              await storage.createCustomerWallet({
+                customerId: incomingCustomerId, direction: direction as any, type: 'crypto' as any,
+                providerId: resolvedProviderId,
+                providerName: resolvedProviderName,
+                network: resolvedNetwork ?? String(patch.endpointName ?? before.endpointName ?? resolvedProviderName),
+                addressOrId: counterAddr,
+                label: `Auto-registered from ${before.recordNumber}`,
+                isDefault: false, isActive: true,
+              }, actor ?? undefined);
+              patch.isWhitelisted = true;
+              const existingMatchLog = patch.logEvents ?? (before.logEvents as any[] ?? []);
+              patch.logEvents = [...existingMatchLog,
+                { action: 'address_whitelisted', by: actor, timestamp: new Date().toISOString(),
+                  address: counterAddr, providerId: resolvedProviderId, providerName: resolvedProviderName,
+                  note: `New ${direction} address auto-registered to customer whitelist` },
+              ];
+            } else {
+              if (!alreadyKnown.providerId && resolvedProviderId) {
+                await storage.updateCustomerWallet(alreadyKnown.id, { providerId: resolvedProviderId, providerName: resolvedProviderName, network: resolvedNetwork });
               }
+              patch.isWhitelisted = true;
+            }
+          }
+
+          if (recType === 'cash' && direction === 'outflow' && counterAddr.length > 2) {
+            const wallets = await storage.getCustomerWallets(incomingCustomerId);
+            const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
+            if (!alreadyKnown) {
+              await storage.createCustomerWallet({
+                customerId: incomingCustomerId, direction: 'outflow', type: 'cash' as any,
+                providerId: resolvedProviderId,
+                providerName: resolvedProviderName,
+                network: null,
+                addressOrId: counterAddr,
+                label: `Auto-registered from ${before.recordNumber}`,
+                isDefault: false, isActive: true,
+              }, actor ?? undefined);
+              patch.isWhitelisted = true;
+              const existingMatchLog = patch.logEvents ?? (before.logEvents as any[] ?? []);
+              patch.logEvents = [...existingMatchLog,
+                { action: 'cash_account_whitelisted', by: actor, timestamp: new Date().toISOString(),
+                  account: counterAddr, providerId: resolvedProviderId, providerName: resolvedProviderName,
+                  note: `Cash outflow account auto-registered to customer whitelist` },
+              ];
+            } else {
+              if (!alreadyKnown.providerId && resolvedProviderId) {
+                await storage.updateCustomerWallet(alreadyKnown.id, { providerId: resolvedProviderId, providerName: resolvedProviderName });
+              }
+              patch.isWhitelisted = true;
             }
           }
         }
@@ -958,48 +962,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             return res.status(400).json({ message: `Cannot confirm — journal entry failed: ${jeErr.message}` });
           }
           const recType = (patch.type ?? before.type) as string;
-          if (recType === 'crypto') {
-            const direction = (patch.direction ?? before.direction) as string;
-            // networkOrId always holds the counterparty wallet address
-            const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
-            const networkLabel = String(patch.endpointName ?? before.endpointName ?? patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
-            if (counterAddr.length > 5) {
-              const wallets = await storage.getCustomerWallets(incomingCustomerId);
-              const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
-              if (!alreadyKnown) {
-                await storage.createCustomerWallet({
-                  customerId: incomingCustomerId, direction: direction as any, type: 'crypto' as any,
-                  providerName: String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown'),
-                  network: networkLabel,
-                  addressOrId: counterAddr,
-                  label: `Auto-registered from ${before.recordNumber}`,
-                  isDefault: false, isActive: true,
-                }, actor ?? undefined);
-                patch.isWhitelisted = true;
-              } else { patch.isWhitelisted = true; }
+          const direction = (patch.direction ?? before.direction) as string;
+          const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
+          const confirmAccountId = (patch.accountId ?? before.accountId) as string | null;
+          let cfProviderId: string | null = null;
+          let cfProviderName = String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
+          let cfNetwork: string | null = null;
+          if (confirmAccountId) {
+            const cfAcct = await storage.getAccount(confirmAccountId);
+            if (cfAcct?.providerId) {
+              cfProviderId = cfAcct.providerId;
+              const cfProv = await storage.getProvider(cfAcct.providerId);
+              if (cfProv) {
+                cfProviderName = cfProv.name;
+                cfNetwork = cfProv.networkCode ?? null;
+              }
             }
           }
-          // ── Auto-register cash outflow bank account into customer whitelist at confirm time ──
-          if (recType === 'cash') {
-            const direction = (patch.direction ?? before.direction) as string;
-            if (direction === 'outflow') {
-              const counterAddr = (patch.networkOrId ?? before.networkOrId ?? '').trim();
-              const providerName = String(patch.assetOrProviderName ?? before.assetOrProviderName ?? 'Unknown');
-              if (counterAddr.length > 2) {
-                const wallets = await storage.getCustomerWallets(incomingCustomerId);
-                const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
-                if (!alreadyKnown) {
-                  await storage.createCustomerWallet({
-                    customerId: incomingCustomerId, direction: 'outflow', type: 'cash' as any,
-                    providerName,
-                    network: null,
-                    addressOrId: counterAddr,
-                    label: `Auto-registered from ${before.recordNumber}`,
-                    isDefault: false, isActive: true,
-                  }, actor ?? undefined);
-                  patch.isWhitelisted = true;
-                } else { patch.isWhitelisted = true; }
+
+          if (recType === 'crypto' && counterAddr.length > 5) {
+            const wallets = await storage.getCustomerWallets(incomingCustomerId);
+            const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
+            if (!alreadyKnown) {
+              await storage.createCustomerWallet({
+                customerId: incomingCustomerId, direction: direction as any, type: 'crypto' as any,
+                providerId: cfProviderId,
+                providerName: cfProviderName,
+                network: cfNetwork ?? String(patch.endpointName ?? before.endpointName ?? cfProviderName),
+                addressOrId: counterAddr,
+                label: `Auto-registered from ${before.recordNumber}`,
+                isDefault: false, isActive: true,
+              }, actor ?? undefined);
+              patch.isWhitelisted = true;
+            } else {
+              if (!alreadyKnown.providerId && cfProviderId) {
+                await storage.updateCustomerWallet(alreadyKnown.id, { providerId: cfProviderId, providerName: cfProviderName, network: cfNetwork });
               }
+              patch.isWhitelisted = true;
+            }
+          }
+          if (recType === 'cash' && direction === 'outflow' && counterAddr.length > 2) {
+            const wallets = await storage.getCustomerWallets(incomingCustomerId);
+            const alreadyKnown = wallets.find(w => w.addressOrId.toLowerCase() === counterAddr.toLowerCase());
+            if (!alreadyKnown) {
+              await storage.createCustomerWallet({
+                customerId: incomingCustomerId, direction: 'outflow', type: 'cash' as any,
+                providerId: cfProviderId,
+                providerName: cfProviderName,
+                network: null,
+                addressOrId: counterAddr,
+                label: `Auto-registered from ${before.recordNumber}`,
+                isDefault: false, isActive: true,
+              }, actor ?? undefined);
+              patch.isWhitelisted = true;
+            } else {
+              if (!alreadyKnown.providerId && cfProviderId) {
+                await storage.updateCustomerWallet(alreadyKnown.id, { providerId: cfProviderId, providerName: cfProviderName });
+              }
+              patch.isWhitelisted = true;
             }
           }
           // Keep the contra account label in sync with the matched customer at confirmation.
