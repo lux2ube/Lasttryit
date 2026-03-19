@@ -91,7 +91,7 @@ function typeLabel(type: string, direction: string): React.ReactNode {
   const [en, ar] = labels[key] ?? ["Unknown", "غير معروف"];
   return (
     <span>
-      {en} — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>{ar}</span>
+      {en} — <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>{ar}</span>
     </span>
   );
 }
@@ -196,6 +196,8 @@ const WHITE     = "#FFFFFF";
 const ROW_ALT   = "#FAFAF8";
 const GREEN     = "#16A34A";
 
+const AR_FONT   = "Tahoma, Arial, sans-serif";
+
 // ── Row component ─────────────────────────────────────────────────────────────
 
 const Row = ({ label, value, mono, accent, bold, alt, labelAr }: {
@@ -213,7 +215,7 @@ const Row = ({ label, value, mono, accent, bold, alt, labelAr }: {
     }}>
       <span style={{ fontSize: "12.5px", fontWeight: 500, color: TEXT_SEC, flexShrink: 0 }}>
         {label}
-        {labelAr && <span style={{ display: "block", fontSize: "10px", color: "#A1A1AA", fontWeight: 400, marginTop: "1px", direction: "rtl", unicodeBidi: "isolate", textAlign: "right" }}>{labelAr}</span>}
+        {labelAr && <span style={{ display: "block", fontSize: "10px", color: "#A1A1AA", fontWeight: 400, marginTop: "1px", direction: "rtl", unicodeBidi: "isolate", textAlign: "right", fontFamily: AR_FONT }}>{labelAr}</span>}
       </span>
       <span style={{
         fontSize: "13px", fontWeight: bold ? 700 : 500,
@@ -285,12 +287,12 @@ export function InvoiceTemplate({
             style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "10px" }}
           />
           <div style={{ textAlign: "left" }}>
-            <div style={{ color: DARK, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.3px", lineHeight: 1, direction: "rtl", unicodeBidi: "isolate" }}>كوين كاش</div>
+            <div style={{ color: DARK, fontSize: "18px", fontWeight: 800, lineHeight: 1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
             <div style={{ color: GOLD_DARK, fontSize: "10px", fontWeight: 500, marginTop: "3px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
           </div>
         </div>
         <div style={{ color: TEXT, fontSize: "15px", fontWeight: 700, letterSpacing: "0.2px" }}>Transaction Details</div>
-        <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "2px", direction: "rtl", unicodeBidi: "isolate" }}>تفاصيل العملية</div>
+        <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "2px", direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>تفاصيل العملية</div>
       </div>
 
       {/* ══ HERO TOTAL ══════════════════════════════════════════════════════ */}
@@ -301,8 +303,8 @@ export function InvoiceTemplate({
           letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "10px",
         }}>
           {isInflow
-            ? <>Total Credit — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>لكم</span></>
-            : <>Total Debit — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>عليكم</span></>}
+            ? <>Total Credit — <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>لكم</span></>
+            : <>Total Debit — <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>عليكم</span></>}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "8px" }}>
           <span style={{
@@ -365,7 +367,7 @@ export function InvoiceTemplate({
         fontSize: "10px", fontWeight: 700, letterSpacing: "1.2px",
         textTransform: "uppercase", color: GOLD_DARK,
       }}>
-        Client Info · <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>بيانات العميل</span>
+        Client Info · <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>بيانات العميل</span>
       </div>
       <Row label="Name" value={clientName} bold />
       <Row label="Client ID" value={customerId} mono alt />
@@ -392,7 +394,7 @@ export function InvoiceTemplate({
           marginBottom: "8px", border: `1px solid rgba(245,166,35,0.25)`,
         }}>
           <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>✓</span>{" "}
-          <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>تم تأكيد العملية بنجاح</span>
+          <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>تم تأكيد العملية بنجاح</span>
         </div>
         <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "9px", marginTop: "4px", letterSpacing: "0.3px" }}>
           © {new Date().getFullYear()} Coin Cash · ycoincash.com
