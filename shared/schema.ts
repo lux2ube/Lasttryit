@@ -25,6 +25,7 @@ export const staffRoleEnum = pgEnum("staff_role", [
 
 export const customerStatusEnum = pgEnum("customer_status", [
   "active",
+  "inactive",
   "suspended",
 ]);
 

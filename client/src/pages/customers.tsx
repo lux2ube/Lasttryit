@@ -722,7 +722,7 @@ interface Customer {
   phonePrimary: string;
   phoneSecondary?: string[];
   whatsappGroupId?: string;
-  customerStatus: "active" | "suspended";
+  customerStatus: "active" | "inactive" | "suspended";
   verificationStatus: "verified" | "unverified" | "blocked";
   riskLevel: "low" | "medium" | "high";
   loyaltyGroup?: string;
@@ -746,7 +746,7 @@ const customerFormSchema = z.object({
   email:              z.string().email("Invalid email").optional().or(z.literal("")),
   phonePrimary:       z.string().min(7, "Valid phone required"),
   whatsappGroupId:    z.string().optional(),
-  customerStatus:     z.enum(["active", "suspended"]),
+  customerStatus:     z.enum(["active", "inactive", "suspended"]),
   verificationStatus: z.enum(["verified", "unverified", "blocked"]),
   riskLevel:          z.enum(["low", "medium", "high"]),
   loyaltyGroup:       z.string().optional(),
@@ -772,8 +772,9 @@ interface CustomerWallet {
 
 // ── Status / risk config ──────────────────────────────────────────────────────
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; icon: any; className: string }> = {
   active:    { label: "Active",    icon: CheckCircle, className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  inactive:  { label: "Inactive",  icon: Clock,       className: "bg-slate-100 text-slate-600 dark:bg-slate-800/40 dark:text-slate-400" },
   suspended: { label: "Suspended", icon: Ban,         className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
 };
 const verificationConfig = {
@@ -829,6 +830,7 @@ interface DocItem {
   issueDate: string;
   expiryDate: string;
   imageData: { name: string; type: string; size: number; data: string } | null;
+  storagePath?: string;
 }
 
 function providerToType(category: string): "crypto" | "cash" {
@@ -1141,6 +1143,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
       issueDate: d.issue_date ?? "",
       expiryDate: d.expiry_date ?? "",
       imageData: d.imageData ?? null,
+      storagePath: d.storagePath ?? undefined,
     }));
   };
   const [documents, setDocuments] = useState<DocItem[]>(initDocs);
@@ -1152,36 +1155,58 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
   const resetOcrState = () => { setOcrLoading(false); setOcrProgress(0); };
   const openAddDoc = () => {
     setEditingDoc(null);
-    setDocForm({ type: "national_id", customLabel: "", number: "", issueDate: "", expiryDate: "", imageData: null });
+    setDocForm({ type: "national_id", customLabel: "", number: "", issueDate: "", expiryDate: "", imageData: null, storagePath: undefined });
     resetOcrState();
     if (docFileRef.current) docFileRef.current.value = "";
     setDocDialogOpen(true);
   };
   const openEditDoc = (doc: DocItem) => {
     setEditingDoc(doc);
-    setDocForm({ type: doc.type, customLabel: doc.customLabel ?? "", number: doc.number, issueDate: doc.issueDate, expiryDate: doc.expiryDate, imageData: doc.imageData });
+    setDocForm({ type: doc.type, customLabel: doc.customLabel ?? "", number: doc.number, issueDate: doc.issueDate, expiryDate: doc.expiryDate, imageData: doc.imageData, storagePath: doc.storagePath });
     resetOcrState();
     setDocDialogOpen(true);
   };
   const removeDoc = (id: string) => setDocuments(prev => prev.filter(d => d.id !== id));
   const saveDoc = () => {
     if (!docForm.type) return;
+    const formWithStorage = { ...docForm };
     if (editingDoc) {
-      setDocuments(prev => prev.map(d => d.id === editingDoc.id ? { ...d, ...docForm } : d));
+      setDocuments(prev => prev.map(d => d.id === editingDoc.id ? { ...d, ...formWithStorage } : d));
     } else {
-      setDocuments(prev => [...prev, { id: Date.now().toString(), ...docForm }]);
+      setDocuments(prev => [...prev, { id: Date.now().toString(), ...formWithStorage }]);
     }
     setDocDialogOpen(false);
   };
-  const handleDocFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const handleDocFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 8 * 1024 * 1024) { toast({ title: "File too large", description: "Max 8 MB", variant: "destructive" }); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDocForm(prev => ({ ...prev, imageData: { name: file.name, type: file.type, size: file.size, data: reader.result as string } }));
-    };
-    reader.readAsDataURL(file);
+
+    if (customer?.id) {
+      setUploadingFile(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`/api/customers/${customer.id}/kyc-upload`, { method: "POST", body: formData, credentials: "include" });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.message || "Upload failed"); }
+        const data = await res.json();
+        setDocForm(prev => ({
+          ...prev,
+          storagePath: data.storagePath,
+          imageData: { name: data.originalName, type: data.mimeType, size: data.size, data: "" },
+        }));
+        toast({ title: "File uploaded", description: `${data.originalName} stored securely` });
+      } catch (err: any) {
+        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      } finally { setUploadingFile(false); }
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setDocForm(prev => ({ ...prev, imageData: { name: file.name, type: file.type, size: file.size, data: reader.result as string } }));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const { data: customerGroups } = useQuery<CustomerGroup[]>({ queryKey: ["/api/customer-groups"] });
@@ -1284,14 +1309,17 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
         ...rest,
         phoneSecondary: secondaryPhones.filter(p => p && p.length > 4),
         labels: selectedLabels,
-        demographics: { gender, dob: dateOfBirth, country, city: cityValue, address },
+        demographics: { gender, dob: dateOfBirth, country: "Yemen", city: cityValue, address },
         documentation: documents.map(d => ({
           type: d.type,
           customLabel: d.customLabel || undefined,
           number: d.number || undefined,
           issue_date: d.issueDate || undefined,
           expiry_date: d.expiryDate || undefined,
-          imageData: d.imageData || undefined,
+          storagePath: d.storagePath || undefined,
+          imageData: d.storagePath
+            ? { name: d.imageData?.name, type: d.imageData?.type, size: d.imageData?.size }
+            : (d.imageData || undefined),
         })),
       };
       const method = customer ? "PATCH" : "POST";
@@ -1475,12 +1503,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                 )} />
               </div>
 
-              <FormField control={form.control} name="country" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Country</FormLabel>
-                  <FormControl><Input placeholder="Yemen" {...field} /></FormControl>
-                </FormItem>
-              )} />
+              {/* Country defaults to Yemen — no editable field */}
 
               <div>
                 <p className="text-sm font-medium mb-1.5">الموقع (المحافظة — المديرية — العزلة)</p>
@@ -1494,11 +1517,11 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <FormField control={form.control} name="address" render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="col-span-2">
                     <FormLabel>Address</FormLabel>
-                    <FormControl><Input placeholder="Street / building" {...field} /></FormControl>
+                    <FormControl><Input placeholder="Street / building / area" {...field} className="w-full" /></FormControl>
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="whatsappGroupId" render={({ field }) => (
@@ -1507,13 +1530,22 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                     <FormControl><Input placeholder="grp-001" {...field} data-testid="input-wa-group" /></FormControl>
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="notes" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl><Input placeholder="Additional notes..." {...field} /></FormControl>
-                  </FormItem>
-                )} />
               </div>
+
+              <FormField control={form.control} name="notes" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes</FormLabel>
+                  <FormControl>
+                    <textarea
+                      placeholder="Internal notes, special instructions, customer preferences..."
+                      {...field}
+                      rows={4}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y min-h-[80px]"
+                      data-testid="input-notes"
+                    />
+                  </FormControl>
+                </FormItem>
+              )} />
             </TabsContent>
 
             {/* ── KYC & Documents ────────────────────────────── */}
@@ -1535,11 +1567,18 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                 <div className="space-y-2">
                   {documents.map(doc => {
                     const docLabel = DOC_TYPES.find(t => t.value === doc.type)?.label ?? doc.type;
+                    const hasFile = !!doc.imageData || !!doc.storagePath;
+                    const hasInlineImage = doc.imageData?.data && doc.imageData.type?.startsWith("image/");
+                    const isStorageBacked = !!doc.storagePath;
                     return (
                       <div key={doc.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/20" data-testid={`doc-${doc.id}`}>
-                        {doc.imageData && doc.imageData.type?.startsWith("image/") ? (
+                        {hasInlineImage ? (
                           <button type="button" onClick={() => setPreviewDoc(doc)} className="w-12 h-12 rounded-lg overflow-hidden border border-border shrink-0 hover:ring-2 ring-primary transition-all cursor-pointer">
-                            <img src={doc.imageData.data} alt={docLabel} className="w-full h-full object-cover" />
+                            <img src={doc.imageData!.data} alt={docLabel} className="w-full h-full object-cover" />
+                          </button>
+                        ) : isStorageBacked ? (
+                          <button type="button" onClick={() => setPreviewDoc(doc)} className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-border shrink-0 hover:ring-2 ring-primary transition-all cursor-pointer">
+                            <FileText className="w-5 h-5 text-primary" />
                           </button>
                         ) : (
                           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -1550,15 +1589,17 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold">{docLabel}</span>
                             {doc.customLabel && <span className="text-xs text-muted-foreground">({doc.customLabel})</span>}
-                            {doc.imageData && <Badge variant="secondary" className="text-xs"><Upload className="w-2.5 h-2.5 mr-1" />File attached</Badge>}
+                            {isStorageBacked && <Badge variant="secondary" className="text-xs"><CheckCircle className="w-2.5 h-2.5 mr-1" />Stored</Badge>}
+                            {hasFile && !isStorageBacked && <Badge variant="secondary" className="text-xs"><Upload className="w-2.5 h-2.5 mr-1" />File attached</Badge>}
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {doc.number && <span className="font-mono mr-2">{doc.number}</span>}
                             {doc.expiryDate && <span>Expires: {doc.expiryDate}</span>}
+                            {doc.imageData?.name && <span className="ml-2">{doc.imageData.name}</span>}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          {doc.imageData && (
+                          {hasFile && (
                             <Button type="button" size="sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewDoc(doc)} data-testid={`button-preview-doc-${doc.id}`}>
                               <Eye className="w-3 h-3" />
                             </Button>
@@ -1616,15 +1657,23 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium">Scan / Photo</label>
                       <input ref={docFileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleDocFileSelect} />
-                      {docForm.imageData ? (
+                      {uploadingFile ? (
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700">
+                          <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                          <p className="text-sm text-blue-700 dark:text-blue-300">Uploading to secure storage...</p>
+                        </div>
+                      ) : docForm.imageData ? (
                         <div className="space-y-2">
                           <div className="flex items-center gap-3 p-3 rounded-lg border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700">
-                            <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                            {docForm.storagePath ? <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" /> : <FileText className="w-4 h-4 text-emerald-600 shrink-0" />}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm text-emerald-700 dark:text-emerald-300 truncate">{docForm.imageData.name}</p>
-                              <p className="text-xs text-muted-foreground">{(docForm.imageData.size / 1024).toFixed(0)} KB</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(docForm.imageData.size / 1024).toFixed(0)} KB
+                                {docForm.storagePath && <span className="ml-2 text-emerald-600">· Stored securely</span>}
+                              </p>
                             </div>
-                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0" onClick={() => { setDocForm(prev => ({ ...prev, imageData: null })); if (docFileRef.current) docFileRef.current.value = ""; }}>
+                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 shrink-0" onClick={() => { setDocForm(prev => ({ ...prev, imageData: null, storagePath: undefined })); if (docFileRef.current) docFileRef.current.value = ""; }}>
                               <X className="w-3 h-3" />
                             </Button>
                           </div>
@@ -1667,35 +1716,8 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                 </DialogContent>
               </Dialog>
 
-              {previewDoc && previewDoc.imageData && (
-                <Dialog open={!!previewDoc} onOpenChange={() => setPreviewDoc(null)}>
-                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2 text-base">
-                        <Eye className="w-4 h-4 text-primary" />
-                        {DOC_TYPES.find(t => t.value === previewDoc.type)?.label ?? previewDoc.type}
-                        {previewDoc.customLabel && <span className="text-muted-foreground font-normal">({previewDoc.customLabel})</span>}
-                      </DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-3">
-                      {previewDoc.imageData.type?.startsWith("image/") ? (
-                        <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
-                          <img src={previewDoc.imageData.data} alt="Document preview" className="w-full object-contain max-h-[60vh]" />
-                        </div>
-                      ) : previewDoc.imageData.type === "application/pdf" ? (
-                        <iframe src={previewDoc.imageData.data} className="w-full h-[60vh] rounded-lg border border-border" title="PDF Preview" />
-                      ) : null}
-                      <div className="grid grid-cols-3 gap-3 text-sm">
-                        {previewDoc.number && <div><p className="text-xs text-muted-foreground">Document Number</p><p className="font-mono font-semibold">{previewDoc.number}</p></div>}
-                        {previewDoc.issueDate && <div><p className="text-xs text-muted-foreground">Issue Date</p><p className="font-semibold">{previewDoc.issueDate}</p></div>}
-                        {previewDoc.expiryDate && <div><p className="text-xs text-muted-foreground">Expiry Date</p><p className="font-semibold">{previewDoc.expiryDate}</p></div>}
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setPreviewDoc(null)}>Close</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+              {previewDoc && (previewDoc.imageData || previewDoc.storagePath) && (
+                <DocPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
               )}
             </TabsContent>
 
@@ -1709,6 +1731,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                       <FormControl><SelectTrigger data-testid="select-status"><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
                         <SelectItem value="suspended">Suspended</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1821,6 +1844,70 @@ const recTypeColors: Record<string, string> = {
   "crypto-inflow":  "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
   "crypto-outflow": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
+
+function DocPreviewDialog({ doc, onClose }: { doc: DocItem; onClose: () => void }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (doc.storagePath && !doc.imageData?.data) {
+      setLoading(true);
+      fetch(`/api/kyc-document/signed-url?path=${encodeURIComponent(doc.storagePath)}`, { credentials: "include" })
+        .then(r => r.json())
+        .then(d => { setSignedUrl(d.signedUrl); setLoading(false); })
+        .catch(() => setLoading(false));
+    }
+  }, [doc.storagePath, doc.imageData?.data]);
+
+  const imageUrl = doc.imageData?.data || signedUrl;
+  const mimeType = doc.imageData?.type ?? "";
+  const isImage = mimeType.startsWith("image/");
+  const isPdf = mimeType === "application/pdf";
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Eye className="w-4 h-4 text-primary" />
+            {DOC_TYPES.find(t => t.value === doc.type)?.label ?? doc.type}
+            {doc.customLabel && <span className="text-muted-foreground font-normal">({doc.customLabel})</span>}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">Loading document...</div>
+          ) : imageUrl && isImage ? (
+            <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+              <img src={imageUrl} alt="Document preview" className="w-full object-contain max-h-[60vh]" />
+            </div>
+          ) : imageUrl && isPdf ? (
+            <iframe src={imageUrl} className="w-full h-[60vh] rounded-lg border border-border" title="PDF Preview" />
+          ) : imageUrl ? (
+            <div className="text-center py-8">
+              <a href={imageUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline" data-testid="link-download-doc">
+                Open Document
+              </a>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            {doc.number && <div><p className="text-xs text-muted-foreground">Document Number</p><p className="font-mono font-semibold">{doc.number}</p></div>}
+            {doc.issueDate && <div><p className="text-xs text-muted-foreground">Issue Date</p><p className="font-semibold">{doc.issueDate}</p></div>}
+            {doc.expiryDate && <div><p className="text-xs text-muted-foreground">Expiry Date</p><p className="font-semibold">{doc.expiryDate}</p></div>}
+          </div>
+          {doc.storagePath && (
+            <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" /> Stored in secure cloud storage
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onClose: () => void }) {
   const { data: transactions, isLoading: txLoading } = useQuery<HistoryTransaction[]>({

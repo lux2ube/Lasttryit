@@ -2295,42 +2295,44 @@ export class DatabaseStorage implements IStorage {
       });
     };
 
+    const MIN_INCOME_USD = 1.0;
+
     if (rec.type === 'cash') {
       if (rec.direction === 'inflow') {
-        // Customer gets: amount / execBuyRate (at execution/system rate admin set)
-        // Spread = suspenseAmount − customerNet
         const customerNetUsd = amount / execBuyRate;
-        const spreadUsd      = Math.max(0, suspenseAmount - customerNetUsd);
-        const customerActual = suspenseAmount - spreadUsd; // ensures exact balance
+        const rawSpread      = Math.max(0, suspenseAmount - customerNetUsd);
+        const spreadUsd      = rawSpread > 0 && rawSpread < MIN_INCOME_USD
+          ? Math.min(MIN_INCOME_USD, suspenseAmount) : rawSpread;
+        const customerActual = Math.max(0, suspenseAmount - spreadUsd);
         projectedProfit = spreadUsd;
         feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: customerActual };
 
         addLine('2101', 'Customer Credits - Unmatched',
           suspenseAmount, 0, `[CONFIRM-CLR] Clear suspense — ${ref}`);
         addLine(customerAcctCode, customerAcctName,
-          0, customerActual, `[CONFIRM] Net to customer (exec rate ${execBuyRate} ${acctCurrency}/$) — ${ref} | ${custName}`,
+          0, customerActual, `[CONFIRM] Net to customer (exec rate ${execBuyRate} ${acctCurrency}/$, min spread $${MIN_INCOME_USD}) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         if (spreadUsd > 0.001) {
           addLine('4201', 'FX Spread Income', 0, spreadUsd,
-            `[P&L] FX spread (bank ${acctBuyRate} vs exec ${execBuyRate}) — ${ref}`);
+            `[P&L] FX spread (bank ${acctBuyRate} vs exec ${execBuyRate}, min $${MIN_INCOME_USD}) — ${ref}`);
         }
       } else {
-        // We disbursed: suspenseAmount (at bank rate)
-        // Customer charge: amount / execSellRate (at exec rate)
-        // Spread = customerCharge − suspenseAmount
         const customerChargeUsd = amount / execSellRate;
-        const spreadUsd         = Math.max(0, customerChargeUsd - suspenseAmount);
+        const rawSpread         = Math.max(0, customerChargeUsd - suspenseAmount);
+        const spreadUsd         = rawSpread > 0 && rawSpread < MIN_INCOME_USD
+          ? MIN_INCOME_USD : rawSpread;
+        const adjustedCharge    = suspenseAmount + spreadUsd;
         projectedProfit = spreadUsd;
-        feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: customerChargeUsd };
+        feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: adjustedCharge };
 
         addLine(customerAcctCode, customerAcctName,
-          customerChargeUsd, 0, `[CONFIRM] Customer charge (exec rate ${execSellRate} ${acctCurrency}/$) — ${ref} | ${custName}`,
+          adjustedCharge, 0, `[CONFIRM] Customer charge (exec rate ${execSellRate} ${acctCurrency}/$, min spread $${MIN_INCOME_USD}) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         addLine('2101', 'Customer Credits - Unmatched',
           0, suspenseAmount, `[CONFIRM-CLR] Clear suspense — ${ref}`);
         if (spreadUsd > 0.001) {
           addLine('4201', 'FX Spread Income', 0, spreadUsd,
-            `[P&L] FX spread (exec ${execSellRate} vs bank ${acctSellRate}) — ${ref}`);
+            `[P&L] FX spread (exec ${execSellRate} vs bank ${acctSellRate}, min $${MIN_INCOME_USD}) — ${ref}`);
         }
       }
     } else {
@@ -2342,13 +2344,10 @@ export class DatabaseStorage implements IStorage {
       const effectiveWithdrawFee = hasOverride && !isNaN(recFeeRate) ? recFeeRate : withdrawFeeRate;
       const effectiveDepositFee  = hasOverride && !isNaN(recFeeRate) ? recFeeRate : depositFeeRate;
 
-      // Minimum service fee: never charge between $0.01 and $1.00 — floor is $1 USD
-      const MIN_SERVICE_FEE_USD = 1.0;
-
       if (rec.direction === 'inflow') {
         const feePct         = effectiveWithdrawFee / 100;
         const rawFeeUsd      = amount * feePct;
-        const feeUsd         = rawFeeUsd > 0 && rawFeeUsd < MIN_SERVICE_FEE_USD ? MIN_SERVICE_FEE_USD : rawFeeUsd;
+        const feeUsd         = rawFeeUsd > 0 && rawFeeUsd < MIN_INCOME_USD ? MIN_INCOME_USD : rawFeeUsd;
         const customerNet    = Math.max(0, suspenseAmount - feeUsd);
         projectedProfit = feeUsd;
         feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: feeUsd, networkFeeUsd: 0, effectiveFeeRate: effectiveWithdrawFee, spreadUsd: 0, spreadRate: 0, clientLiabilityUsd: customerNet };
@@ -2357,16 +2356,16 @@ export class DatabaseStorage implements IStorage {
           suspenseAmount, 0, `[CONFIRM-CLR] Clear suspense — ${ref}`);
         addLine(customerAcctCode, customerAcctName,
           0, customerNet > 0 ? customerNet : suspenseAmount,
-          `[CONFIRM] Net to customer (after ${effectiveWithdrawFee}% fee, min $${MIN_SERVICE_FEE_USD}) — ${ref} | ${custName}`,
+          `[CONFIRM] Net to customer (after ${effectiveWithdrawFee}% fee, min $${MIN_INCOME_USD}) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         if (feeUsd > 0.0001) {
           addLine('4101', 'Service Fee Income', 0, feeUsd,
-            `[P&L] Withdraw fee ${effectiveWithdrawFee}% (min $${MIN_SERVICE_FEE_USD}) — ${ref}`);
+            `[P&L] Withdraw fee ${effectiveWithdrawFee}% (min $${MIN_INCOME_USD}) — ${ref}`);
         }
       } else {
         const feePct          = effectiveDepositFee / 100;
         const rawFeeUsd       = amount * feePct;
-        const feeUsd          = rawFeeUsd > 0 && rawFeeUsd < MIN_SERVICE_FEE_USD ? MIN_SERVICE_FEE_USD : rawFeeUsd;
+        const feeUsd          = rawFeeUsd > 0 && rawFeeUsd < MIN_INCOME_USD ? MIN_INCOME_USD : rawFeeUsd;
         const netFee          = networkFeeUsd;
         const customerCharge  = suspenseAmount + feeUsd + netFee;
         projectedProfit = feeUsd + netFee;
@@ -2374,11 +2373,11 @@ export class DatabaseStorage implements IStorage {
 
         addLine(customerAcctCode, customerAcctName,
           customerCharge, 0,
-          `[CONFIRM] Customer charge (${rec.currency} + ${effectiveDepositFee}% min $${MIN_SERVICE_FEE_USD} + $${netFee} gas) — ${ref} | ${custName}`,
+          `[CONFIRM] Customer charge (${rec.currency} + ${effectiveDepositFee}% min $${MIN_INCOME_USD} + $${netFee} gas) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         addLine('2101', 'Customer Credits - Unmatched',
           0, suspenseAmount, `[CONFIRM-CLR] Clear suspense — ${ref}`);
-        if (feeUsd  > 0.0001) addLine('4101', 'Service Fee Income',   0, feeUsd,  `[P&L] Deposit fee ${effectiveDepositFee}% (min $${MIN_SERVICE_FEE_USD}) — ${ref}`);
+        if (feeUsd  > 0.0001) addLine('4101', 'Service Fee Income',   0, feeUsd,  `[P&L] Deposit fee ${effectiveDepositFee}% (min $${MIN_INCOME_USD}) — ${ref}`);
         if (netFee  > 0.0001) addLine('4301', 'Network Fee Recovery', 0, netFee,  `[P&L] Network fee — ${ref}`);
       }
     }

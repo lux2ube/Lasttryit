@@ -6,10 +6,12 @@ import { Pool } from "pg";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
+import multer from "multer";
 import { storage } from "./storage";
 import { db } from "./db";
 import { sql, eq, and, desc, ilike } from "drizzle-orm";
 import { whatsappService } from "./whatsapp-service";
+import { uploadKycDocument, getSignedUrl, deleteKycDocument } from "./supabase-storage";
 import {
   insertCustomerSchema, insertBlacklistEntrySchema,
   insertRecordSchema, insertTransactionSchema,
@@ -424,6 +426,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const customer = await storage.getCustomer(wallet.customerId);
       res.json({ wallet, customer: customer ?? null });
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
+  });
+
+  // ─── KYC DOCUMENT STORAGE (Supabase Bucket) ──────────────────────────────
+  const kycUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.post("/api/customers/:id/kyc-upload", requireAuth, requireRole("admin", "operations_manager", "finance_officer"),
+    kycUpload.single("file"), async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) return res.status(404).json({ message: "Customer not found" });
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+      const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+      if (!ALLOWED_MIME.includes(file.mimetype)) {
+        return res.status(400).json({ message: `File type ${file.mimetype} not allowed. Accepted: JPEG, PNG, WebP, PDF` });
+      }
+      const result = await uploadKycDocument(customer.id, file.originalname, file.buffer, file.mimetype);
+      res.json({ storagePath: result.path, fullPath: result.fullPath, originalName: file.originalname, mimeType: file.mimetype, size: file.size });
+    } catch (e: any) { console.error("KYC upload error:", e); res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/kyc-document/signed-url", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (req, res) => {
+    try {
+      const { path: docPath } = req.query as { path?: string };
+      if (!docPath) return res.status(400).json({ message: "path query param required" });
+      if (docPath.includes("..") || !docPath.match(/^[a-f0-9-]+\/\d+_/)) {
+        return res.status(400).json({ message: "Invalid document path" });
+      }
+      const customerId = docPath.split("/")[0];
+      const customer = await storage.getCustomer(customerId);
+      if (!customer) return res.status(404).json({ message: "Customer not found for this document" });
+      const url = await getSignedUrl(docPath, 3600);
+      res.json({ signedUrl: url });
+    } catch (e: any) { console.error("KYC signed URL error:", e); res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete("/api/kyc-document", requireAuth, requireRole("admin", "operations_manager"), async (req, res) => {
+    try {
+      const { path } = req.body as { path?: string };
+      if (!path) return res.status(400).json({ message: "path required" });
+      await deleteKycDocument(path);
+      res.json({ success: true });
+    } catch (e: any) { console.error("KYC delete error:", e); res.status(500).json({ message: e.message }); }
   });
 
   // ─── LABELS ───────────────────────────────────────────────────────────────
@@ -2191,10 +2236,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
   });
 
-  app.get("/api/crypto-sends", requireAuth, async (_req, res) => {
+  app.get("/api/crypto-sends", requireAuth, async (req, res) => {
     try {
-      const sends = await db.select().from(cryptoSends).orderBy(desc(cryptoSends.createdAt));
-      res.json(sends);
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1")));
+      const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"))));
+      const offset = (page - 1) * limit;
+      const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(cryptoSends);
+      const total = Number(countResult?.count ?? 0);
+      const sends = await db.select().from(cryptoSends).orderBy(desc(cryptoSends.createdAt)).limit(limit).offset(offset);
+      res.json({ data: sends, total, page, limit, totalPages: Math.ceil(total / limit) });
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
   });
 
@@ -2303,8 +2353,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const networkFeeUsd = parseFloat(String(provider.networkFeeUsd ?? "0"));
       const totalDebitFiat = numFiatAmount;
 
+      // Duplicate prevention: block if same customer+address+amount sent within last 5 minutes
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const [recentDupe] = await db.select({ id: cryptoSends.id, sendNumber: cryptoSends.sendNumber, status: cryptoSends.status })
+        .from(cryptoSends)
+        .where(and(
+          eq(cryptoSends.customerId, customer.id),
+          eq(cryptoSends.recipientAddress, checksumAddress(recipientAddress)),
+          sql`ABS(CAST(${cryptoSends.amount} AS numeric) - ${usdtAmount}) < 0.01`,
+          sql`${cryptoSends.createdAt} > ${fiveMinAgo.toISOString()}`,
+          sql`${cryptoSends.status} IN ('pending', 'broadcasting', 'confirmed')`,
+        )).limit(1);
+      if (recentDupe) {
+        return res.status(409).json({
+          message: `Duplicate detected: ${recentDupe.sendNumber} (${recentDupe.status}) sent to the same address within the last 5 minutes. Wait or change the amount.`,
+        });
+      }
+
       const idempotencyKey = crypto.createHash("sha256")
-        .update(`${customerId}:${recipientAddress}:${amount}:${Date.now()}`)
+        .update(`${customerId}:${recipientAddress}:${usdtAmount.toFixed(6)}:${Date.now()}`)
         .digest("hex");
 
       const year = new Date().getFullYear();

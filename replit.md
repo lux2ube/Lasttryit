@@ -56,6 +56,18 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - Group JID: stored in `customers.whatsappGroupId` (format: `120363XXXXXXXXXX@g.us`)
 - Architecture doc: `docs/whatsapp-notification-architecture.md`
 
+**Fee & Income Policy**
+- Minimum $1 USD floor on ALL income: if a calculated fee (crypto service fee) or spread (cash FX spread) is >$0 but <$1, it's bumped to $1. Zero fees remain zero. Constant: `MIN_INCOME_USD = 1.0` in `server/storage.ts`
+
+**KYC Document Storage**
+- Bucket: `kyc-documents` (Supabase Storage, private, 10MB limit)
+- Upload route: `POST /api/customers/:id/kyc-upload` (multipart/form-data, field: `file`)
+- Signed URL: `GET /api/kyc-document/signed-url?path=...` (1hr expiry)
+- Delete: `DELETE /api/kyc-document` (body: `{ path }`)
+- Helper: `server/supabase-storage.ts` — fetches service role key from management API via `SUPABASE_ACCESS_TOKEN`
+- Storage path: `{customerId}/{timestamp}_{filename}`
+- Backward compatible: old base64 `imageData.data` still works for legacy docs
+
 **Double-Entry Accounting Engine**
 - `currencies` — Accepted currencies (fiat + crypto) with base currency designation (USD)
 - `exchange_rates` — Time-series log of daily rates (fromCurrency → USD); historical record, never editable
@@ -92,7 +104,7 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 
 ## Pages / Routes
 - `/` — Dashboard with 6 KPI cards, Recharts pie + bar charts, real volume/revenue/stage data, recent activity feed
-- `/customers` — Customer management (CRUD, blacklist check, filters, wallet whitelist tab, History dialog with Tx+Record tabs)
+- `/customers` — Customer management (CRUD, blacklist check, filters, wallet whitelist tab, History dialog with Tx+Record tabs). KYC docs uploaded to Supabase Storage bucket `kyc-documents` (private, 10MB limit, image/pdf). Country defaults to "Yemen" (not editable). Status: active/inactive/suspended
 - `/records` — Financial records (4-type tabs, stage filter, search, View detail dialog, Edit, Stage advance buttons)
 - `/transactions` — 4-step wizard: type+customer → pick records (with customer filter) → set fees → confirm; View detail dialog with approve button
 - `/reports` — P&L Analytics (volume + revenue area/bar charts, top customers, tx count by type, 7/30/60/90 day range selector)
@@ -108,7 +120,7 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - `/accounting/exchange-rates` — Time-series rates with "latest" badge, inverse rate display, add/edit/delete per currency
 - `/accounting/providers` — CRUD for service providers (banks, crypto networks, exchanges). Each has fieldType (address|ID) and fieldName label
 - `/accounting/wallet-sync` — Watched wallet management; per-wallet Ankr sync toggle, manual sync, add/edit (network/asset/CoA/provider)
-- `/send-crypto` — Send USDT BEP20: crypto outflow from account 1521 "Auto Send Wallet USDT BEP20" to client wallet. Calculation: amount entered = total debit (what client pays); USDT = fiatAmount / rate / (1 + feeRate/100); fee = USDT * feeRate/100 (always in USD). Example: 104 USD at 4% fee → 100 USDT sent, 4 USD fee, 104 USD total debit. Fee breakdown always displayed in USD regardless of fiat currency. Account UUID resolved from code "1521" with provider enforcement. Confirmation dialog with full USDT breakdown. Send history table with TX hash links to BSCScan
+- `/send-crypto` — Send USDT BEP20: crypto outflow from account 1521 "Auto Send Wallet USDT BEP20" to client wallet. Dual amount modes: Fiat→USDT (auto-calc) or Direct USDT (manual entry). Address auto-fill from customer's matching provider wallet. Duplicate prevention: blocks same customer+address+amount within 5 minutes. Server-side pagination: 50 per page with total count. Confirmation dialog with full USDT breakdown. Send history table with TX hash links to BSCScan
 - `/compliance/alerts` — AML/KYC compliance alert dashboard: structuring detection, KYC limit breaches, liquidity warnings, orphan records. Filter by severity/type/status; acknowledge/resolve/false-positive workflow
 - `/` (Dashboard) — Now includes Liquidity Monitor widget: coverage ratio gauge, wallet balance vs pending outflows, color-coded Safe/Warning/Critical status
 

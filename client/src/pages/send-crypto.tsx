@@ -29,7 +29,7 @@ import {
 import {
   Send, Wallet, RefreshCw, CheckCircle2, XCircle, Clock,
   AlertCircle, ChevronsUpDown, Check, Copy, ExternalLink,
-  Loader2, ShieldAlert, ArrowRight, Zap,
+  Loader2, ShieldAlert, ArrowRight, Zap, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import type { Customer, CustomerWallet, ExchangeRate, CryptoSend } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -37,6 +37,7 @@ import { formatDistanceToNow } from "date-fns";
 const BSCSCAN_TX = "https://bscscan.com/tx/";
 const BSCSCAN_ADDR = "https://bscscan.com/address/";
 const FIAT_CURRENCIES = ["USD", "YER", "SAR", "AED", "KWD"];
+const PAGE_SIZE = 50;
 
 interface AccountInfo {
   account: { id: string; code: string; name: string };
@@ -58,6 +59,7 @@ interface PreviewResult {
   walletBalance: string; bnbBalance: string; walletConfigured: boolean; sufficientBalance: boolean;
 }
 
+interface PaginatedSends { data: CryptoSend[]; total: number; page: number; limit: number; totalPages: number; }
 interface ReverseLookupResult { wallet: CustomerWallet; customer: Customer | null; }
 
 function StatusBadge({ status }: { status: string }) {
@@ -78,8 +80,8 @@ function CopyBtn({ value }: { value: string }) {
   const [ok, setOk] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(value); setOk(true); setTimeout(() => setOk(false), 1500); }}
-      className="text-muted-foreground hover:text-foreground transition-colors" data-testid="button-copy">
-      {ok ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+      className="text-muted-foreground hover:text-primary" data-testid="button-copy">
+      {ok ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
     </button>
   );
 }
@@ -110,6 +112,11 @@ export default function SendCrypto() {
   const [addrLoading, setAddrLoading] = useState(false);
   const [addrMatch, setAddrMatch] = useState<string | null>(null);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Manual USDT entry mode
+  const [amountMode, setAmountMode] = useState<"fiat" | "usdt">("fiat");
+  const [manualUsdt, setManualUsdt] = useState("");
+  // Pagination
+  const [histPage, setHistPage] = useState(1);
 
   const { data: acctInfo, isLoading: acctLoading, error: acctError } = useQuery<AccountInfo>({
     queryKey: ["/api/crypto-sends/account-info"],
@@ -129,9 +136,11 @@ export default function SendCrypto() {
   const numFiat = parseFloat(fiatAmount) || 0;
   const numRate = parseFloat(buyRate) || 0;
   const feeRate = parseFloat(depositFeeRate) || 0;
-  const usdtToSend = numRate > 0 ? numFiat / numRate / (1 + feeRate / 100) : 0;
+
+  // Calculate USDT depending on mode
+  const usdtFromFiat = numRate > 0 ? numFiat / numRate / (1 + feeRate / 100) : 0;
+  const usdtToSend = amountMode === "usdt" ? (parseFloat(manualUsdt) || 0) : usdtFromFiat;
   const feeUsd = usdtToSend * (feeRate / 100);
-  const totalDebit = numFiat;
 
   const { data: customers = [] } = useQuery<Customer[]>({ queryKey: ["/api/customers"] });
   const { data: custWallets = [] } = useQuery<CustomerWallet[]>({
@@ -142,7 +151,12 @@ export default function SendCrypto() {
     enabled: !!selectedCustomer,
   });
   const { data: rates = [] } = useQuery<ExchangeRate[]>({ queryKey: ["/api/accounting/exchange-rates"] });
-  const { data: history = [], isLoading: histLoading } = useQuery<CryptoSend[]>({ queryKey: ["/api/crypto-sends"] });
+  const { data: histResult, isLoading: histLoading } = useQuery<PaginatedSends>({
+    queryKey: ["/api/crypto-sends", histPage],
+    queryFn: () => fetch(`/api/crypto-sends?page=${histPage}&limit=${PAGE_SIZE}`, { credentials: "include" }).then(r => r.json()),
+  });
+  const history = histResult?.data ?? [];
+  const totalPages = histResult?.totalPages ?? 1;
 
   useEffect(() => {
     if (fiatCurrency === "USD") { setBuyRate("1.000000"); return; }
@@ -154,14 +168,20 @@ export default function SendCrypto() {
     setBuyRate(m?.buyRate ? parseFloat(String(m.buyRate)).toFixed(6) : "");
   }, [fiatCurrency, rates.length]);
 
+  // Auto-fill address when customer selected (matching provider)
   useEffect(() => {
     if (!selectedCustomer || custWallets.length === 0) return;
+    const provId = prov?.id;
     const pn = prov?.name?.toLowerCase();
-    const dw = custWallets.find(w => w.providerName?.toLowerCase() === pn && w.isDefault)
+    // Match by providerId first, then by provider name
+    const dw = custWallets.find(w => w.providerId === provId && w.isDefault)
+      ?? custWallets.find(w => w.providerId === provId)
+      ?? custWallets.find(w => w.providerName?.toLowerCase() === pn && w.isDefault)
       ?? custWallets.find(w => w.providerName?.toLowerCase() === pn);
     if (dw) { setRecipientAddress(dw.addressOrId); setAddrMatch(null); }
   }, [custWallets, selectedCustomer, prov]);
 
+  // Reverse lookup: auto-select customer when address is entered
   const doLookup = useCallback(async (addr: string) => {
     if (addr.length < 10) { setAddrMatch(null); return; }
     setAddrLoading(true);
@@ -189,7 +209,8 @@ export default function SendCrypto() {
     mutationFn: () =>
       apiRequest("POST", "/api/crypto-sends/preview", {
         customerId: selectedCustomer?.id, recipientAddress,
-        amount: usdtToSend.toFixed(6), fiatAmount: numFiat.toFixed(4),
+        amount: usdtToSend.toFixed(6),
+        fiatAmount: amountMode === "fiat" ? numFiat.toFixed(4) : (usdtToSend * numRate * (1 + feeRate / 100)).toFixed(4),
         fiatCurrency, exchangeRate: buyRate, depositFeeRate,
         fromAccountId: acct?.code || "1521",
       }),
@@ -201,14 +222,15 @@ export default function SendCrypto() {
     mutationFn: () =>
       apiRequest("POST", "/api/crypto-sends/execute", {
         customerId: selectedCustomer?.id, recipientAddress,
-        amount: usdtToSend.toFixed(6), fiatAmount: numFiat.toFixed(4),
+        amount: usdtToSend.toFixed(6),
+        fiatAmount: amountMode === "fiat" ? numFiat.toFixed(4) : (usdtToSend * numRate * (1 + feeRate / 100)).toFixed(4),
         fiatCurrency, exchangeRate: buyRate, depositFeeRate,
         fromAccountId: preview?.fromAccountId || acct?.code || "1521",
       }),
     onSuccess: (d: CryptoSend) => {
       setConfirmOpen(false);
       toast({ title: "USDT Sent", description: `${d.sendNumber} — TX: ${shortHash(d.txHash ?? "")}` });
-      setFiatAmount(""); setRecipientAddress(""); setSelectedCustomer(null);
+      setFiatAmount(""); setManualUsdt(""); setRecipientAddress(""); setSelectedCustomer(null);
       setAddrMatch(null); setPreview(null);
       queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends"] });
       queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends/account-info"] });
@@ -224,7 +246,9 @@ export default function SendCrypto() {
   );
 
   const canPreview = !!selectedCustomer && recipientAddress.length > 10 && usdtToSend > 0;
-  const provWallets = custWallets.filter(w => w.providerName?.toLowerCase() === prov?.name?.toLowerCase());
+  const provWallets = custWallets.filter(w =>
+    w.providerId === prov?.id || w.providerName?.toLowerCase() === prov?.name?.toLowerCase()
+  );
   const rateOptions = rates.filter(r =>
     (r.fromCurrency === fiatCurrency && r.toCurrency === "USD") ||
     (r.fromCurrency === "USD" && r.toCurrency === fiatCurrency)
@@ -316,7 +340,7 @@ export default function SendCrypto() {
 
               {/* Customer */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Customer</label>
+                <label className="text-xs font-medium text-muted-foreground">Customer <span className="text-destructive">*</span></label>
                 <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
                   <PopoverTrigger asChild>
                     <button data-testid="button-select-customer"
@@ -360,7 +384,7 @@ export default function SendCrypto() {
 
               {/* Wallet address */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Recipient Address</label>
+                <label className="text-xs font-medium text-muted-foreground">Recipient Address <span className="text-destructive">*</span></label>
                 <div className="relative">
                   <Input data-testid="input-recipient-address" placeholder="0x…" value={recipientAddress}
                     onChange={e => onAddrChange(e.target.value)} className="font-mono text-xs pr-8 h-9" />
@@ -388,56 +412,108 @@ export default function SendCrypto() {
 
               <Separator />
 
-              {/* Amount + Currency — same line */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Amount</label>
-                <div className="flex gap-2">
-                  <Input data-testid="input-fiat-amount" type="number" step="0.01" min="0" placeholder="0.00"
-                    value={fiatAmount} onChange={e => setFiatAmount(e.target.value)} className="font-mono flex-1 h-9" />
-                  <Select value={fiatCurrency} onValueChange={v => { setFiatCurrency(v); setBuyRate(""); }}>
-                    <SelectTrigger className="w-20 shrink-0 h-9 text-xs" data-testid="select-fiat-currency">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FIAT_CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+              {/* Amount mode toggle */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-muted-foreground">Amount Entry:</label>
+                <div className="flex rounded-md border overflow-hidden text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setAmountMode("fiat")}
+                    className={`px-3 py-1 transition-colors ${amountMode === "fiat" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                    data-testid="button-mode-fiat"
+                  >
+                    Fiat → USDT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAmountMode("usdt")}
+                    className={`px-3 py-1 transition-colors ${amountMode === "usdt" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                    data-testid="button-mode-usdt"
+                  >
+                    Direct USDT
+                  </button>
                 </div>
               </div>
 
-              {/* Rate + Fee — same line */}
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Rate ({fiatCurrency}/USDT)</label>
-                  <Input data-testid="input-buy-rate" type="number" step="0.000001" min="0" placeholder="e.g. 530"
-                    value={buyRate} onChange={e => setBuyRate(e.target.value)} className="font-mono h-9" />
-                  {fiatCurrency !== "USD" && rateOptions.length > 0 && (
-                    <div className="flex gap-1.5">
-                      {rateOptions.map(r => (
-                        <button key={r.id} onClick={() => setBuyRate(parseFloat(String(r.buyRate ?? r.rate)).toFixed(6))}
-                          data-testid={`button-rate-${r.id}`} className="text-[10px] text-primary hover:underline">
-                          Sync {parseFloat(String(r.buyRate ?? r.rate)).toLocaleString()}
-                        </button>
-                      ))}
+              {amountMode === "fiat" ? (
+                <>
+                  {/* Amount + Currency — same line */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Fiat Amount</label>
+                    <div className="flex gap-2">
+                      <Input data-testid="input-fiat-amount" type="number" step="0.01" min="0" placeholder="0.00"
+                        value={fiatAmount} onChange={e => setFiatAmount(e.target.value)} className="font-mono flex-1 h-9" />
+                      <Select value={fiatCurrency} onValueChange={v => { setFiatCurrency(v); setBuyRate(""); }}>
+                        <SelectTrigger className="w-20 shrink-0 h-9 text-xs" data-testid="select-fiat-currency">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FIAT_CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  )}
-                </div>
-                <div className="w-28 space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Fee %</label>
-                  <div className="relative">
-                    <Input data-testid="input-deposit-fee-rate" type="number" step="0.01" min="0" max="100"
-                      value={depositFeeRate} onChange={e => setDepositFeeRate(e.target.value)}
-                      className="font-mono h-9 pr-6" />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
                   </div>
-                  {feeRate !== prov!.depositFeeRate && (
-                    <button onClick={() => setDepositFeeRate(String(prov!.depositFeeRate))}
-                      className="text-[10px] text-primary hover:underline" data-testid="button-reset-fee">
-                      Reset {prov!.depositFeeRate}%
-                    </button>
-                  )}
-                </div>
-              </div>
+
+                  {/* Rate + Fee — same line */}
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Rate ({fiatCurrency}/USDT)</label>
+                      <Input data-testid="input-buy-rate" type="number" step="0.000001" min="0" placeholder="e.g. 530"
+                        value={buyRate} onChange={e => setBuyRate(e.target.value)} className="font-mono h-9" />
+                      {fiatCurrency !== "USD" && rateOptions.length > 0 && (
+                        <div className="flex gap-1.5">
+                          {rateOptions.map(r => (
+                            <button key={r.id} onClick={() => setBuyRate(parseFloat(String(r.buyRate ?? r.rate)).toFixed(6))}
+                              data-testid={`button-rate-${r.id}`} className="text-[10px] text-primary hover:underline">
+                              Sync {parseFloat(String(r.buyRate ?? r.rate)).toLocaleString()}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-28 space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Fee %</label>
+                      <div className="relative">
+                        <Input data-testid="input-deposit-fee-rate" type="number" step="0.01" min="0" max="100"
+                          value={depositFeeRate} onChange={e => setDepositFeeRate(e.target.value)}
+                          className="font-mono h-9 pr-6" />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
+                      </div>
+                      {feeRate !== prov!.depositFeeRate && (
+                        <button onClick={() => setDepositFeeRate(String(prov!.depositFeeRate))}
+                          className="text-[10px] text-primary hover:underline" data-testid="button-reset-fee">
+                          Reset {prov!.depositFeeRate}%
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Direct USDT input */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">USDT Amount</label>
+                    <Input data-testid="input-manual-usdt" type="number" step="0.000001" min="0" placeholder="0.000000"
+                      value={manualUsdt} onChange={e => setManualUsdt(e.target.value)} className="font-mono h-9" />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Fee %</label>
+                      <div className="relative">
+                        <Input data-testid="input-deposit-fee-rate-manual" type="number" step="0.01" min="0" max="100"
+                          value={depositFeeRate} onChange={e => setDepositFeeRate(e.target.value)}
+                          className="font-mono h-9 pr-6" />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Rate (optional)</label>
+                      <Input data-testid="input-buy-rate-manual" type="number" step="0.000001" min="0" placeholder="e.g. 530"
+                        value={buyRate} onChange={e => setBuyRate(e.target.value)} className="font-mono h-9" />
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* USDT result */}
               <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 flex items-center justify-between">
@@ -486,7 +562,7 @@ export default function SendCrypto() {
           {/* ── History ── */}
           <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b bg-muted/30 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">History <span className="text-muted-foreground font-normal ml-1 text-xs">{history.length}</span></h2>
+              <h2 className="text-sm font-semibold">History <span className="text-muted-foreground font-normal ml-1 text-xs">{histResult?.total ?? 0}</span></h2>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
                 onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends"] })}
                 data-testid="button-refresh-history">
@@ -562,6 +638,29 @@ export default function SendCrypto() {
                 </Table>
               )}
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-5 py-3 border-t bg-muted/20">
+                <span className="text-xs text-muted-foreground">
+                  Page {histPage} of {totalPages} ({histResult?.total ?? 0} total)
+                </span>
+                <div className="flex gap-1.5">
+                  <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                    disabled={histPage <= 1}
+                    onClick={() => setHistPage(p => Math.max(1, p - 1))}
+                    data-testid="button-page-prev">
+                    <ChevronLeft className="w-3.5 h-3.5 mr-0.5" /> Prev
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                    disabled={histPage >= totalPages}
+                    onClick={() => setHistPage(p => p + 1)}
+                    data-testid="button-page-next">
+                    Next <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -575,7 +674,7 @@ export default function SendCrypto() {
               Confirm Send
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Irreversible blockchain transaction.
+              Irreversible blockchain transaction. Check all details carefully.
             </DialogDescription>
           </DialogHeader>
 
