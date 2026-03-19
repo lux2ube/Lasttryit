@@ -76,11 +76,20 @@ function clientNotes(raw?: string): string | null {
   return raw.trim() || null;
 }
 
-function typeLabel(type: string, direction: string): string {
-  if (type === "cash"   && direction === "inflow")  return "إيداع نقدي — Cash Deposit";
-  if (type === "cash"   && direction === "outflow") return "سحب نقدي — Cash Withdrawal";
-  if (type === "crypto" && direction === "inflow")  return "إيداع رقمي — Crypto Deposit";
-  return "سحب رقمي — Crypto Withdrawal";
+function typeLabel(type: string, direction: string): React.ReactNode {
+  const labels: Record<string, [string, string]> = {
+    "cash-inflow":    ["Cash Deposit",    "إيداع نقدي"],
+    "cash-outflow":   ["Cash Withdrawal", "سحب نقدي"],
+    "crypto-inflow":  ["Crypto Deposit",  "إيداع رقمي"],
+    "crypto-outflow": ["Crypto Withdrawal", "سحب رقمي"],
+  };
+  const key = `${type}-${direction}`;
+  const [en, ar] = labels[key] ?? ["Unknown", "غير معروف"];
+  return (
+    <span>
+      {en} — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>{ar}</span>
+    </span>
+  );
 }
 
 const GOLD      = "#F5A623";
@@ -113,7 +122,7 @@ const Row = ({ label, value, mono, accent, bold, alt, labelAr }: {
         flexShrink: 0,
       }}>
         {label}
-        {labelAr && <span style={{ display: "block", fontSize: "10px", color: "#A1A1AA", fontWeight: 400, marginTop: "1px", direction: "rtl", textAlign: "left" }}>{labelAr}</span>}
+        {labelAr && <span style={{ display: "block", fontSize: "10px", color: "#A1A1AA", fontWeight: 400, marginTop: "1px", direction: "rtl", unicodeBidi: "isolate", textAlign: "right" }}>{labelAr}</span>}
       </span>
       <span style={{
         fontSize: "13px",
@@ -188,14 +197,14 @@ function InvoiceTemplate({ record, customer }: { record: FinancialRecord; custom
             style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "10px" }}
           />
           <div style={{ textAlign: "left" }}>
-            <div style={{ color: DARK, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.3px", lineHeight: 1 }}>كوين كاش</div>
+            <div style={{ color: DARK, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.3px", lineHeight: 1, direction: "rtl", unicodeBidi: "isolate" }}>كوين كاش</div>
             <div style={{ color: GOLD_DARK, fontSize: "10px", fontWeight: 500, marginTop: "3px" }}>Coin Cash — Money Exchange & Crypto</div>
           </div>
         </div>
         <div style={{
           color: TEXT, fontSize: "15px", fontWeight: 700, letterSpacing: "0.2px",
         }}>Transaction Details</div>
-        <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "2px", direction: "rtl" }}>تفاصيل العملية</div>
+        <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "2px", direction: "rtl", unicodeBidi: "isolate" }}>تفاصيل العملية</div>
       </div>
 
       {/* ══ HERO TOTAL ══════════════════════════════════════════════════════ */}
@@ -214,7 +223,7 @@ function InvoiceTemplate({ record, customer }: { record: FinancialRecord; custom
           letterSpacing: "0.8px", textTransform: "uppercase",
           marginBottom: "10px",
         }}>
-          {isInflow ? "Total Credit — لكم" : "Total Debit — عليكم"}
+          {isInflow ? <>Total Credit — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>لكم</span></> : <>Total Debit — <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>عليكم</span></>}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "8px" }}>
           <span style={{
@@ -288,7 +297,7 @@ function InvoiceTemplate({ record, customer }: { record: FinancialRecord; custom
         borderBottom: `1px solid ${BORDER}`,
         fontSize: "10px", fontWeight: 700, letterSpacing: "1.2px",
         textTransform: "uppercase", color: GOLD_DARK,
-      }}>Client Info · بيانات العميل</div>
+      }}>Client Info · <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>بيانات العميل</span></div>
 
       <Row label="Name" value={clientName} bold />
       <Row label="Client ID" value={customerId} mono alt />
@@ -319,8 +328,10 @@ function InvoiceTemplate({ record, customer }: { record: FinancialRecord; custom
           padding: "4px 18px", borderRadius: "20px", letterSpacing: "0.3px",
           marginBottom: "8px",
           border: `1px solid rgba(245,166,35,0.25)`,
+          direction: "rtl", unicodeBidi: "isolate",
         }}>
-          ✓ تم تأكيد العملية بنجاح
+          <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>✓</span>{" "}
+          <span style={{ direction: "rtl", unicodeBidi: "isolate" }}>تم تأكيد العملية بنجاح</span>
         </div>
         <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "9px", marginTop: "4px", letterSpacing: "0.3px" }}>
           © {new Date().getFullYear()} Coin Cash · ycoincash.com
