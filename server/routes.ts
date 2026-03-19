@@ -1486,6 +1486,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
+  // Bulk-clear placeholder garbage rows (e.g. {body} stored literally by test tool)
+  app.delete("/api/sms-raw-inbox", requireAuth, requireRole("admin"), async (req, res) => {
+    try {
+      const pattern = (req.query.pattern as string) ?? "{body}";
+      const all = await storage.getSmsRawInboxEntries();
+      const toDelete = all.filter(e => e.raw_message === pattern);
+      await Promise.all(toDelete.map(e => storage.deleteSmsRawInboxEntry(e.id)));
+      res.json({ deleted: toDelete.length });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Legacy compat: plain /api/webhooks/sms (no slug) — uses message + bankId
   app.post("/api/webhooks/sms", async (req, res) => {
     try {

@@ -185,6 +185,15 @@ export default function Webhooks() {
     },
   });
 
+  const clearGarbageMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/sms-raw-inbox?pattern=%7Bbody%7D`),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-raw-inbox"] });
+      toast({ title: `Cleared ${data?.deleted ?? 0} test garbage rows` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const pendingCount = inboxEntries?.filter(e => e.status === "pending").length ?? 0;
   const filteredInbox = inboxEntries?.filter(e => inboxFilter === "all" || e.status === inboxFilter) ?? [];
 
