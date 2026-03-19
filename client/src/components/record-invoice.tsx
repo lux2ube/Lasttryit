@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import domtoimage from "dom-to-image-more";
+import html2canvas from "html2canvas";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
@@ -544,13 +544,21 @@ async function backfillFeeFromJE(record: FinancialRecord): Promise<FinancialReco
 // ── Download: from an already-rendered ref (fast path) ────────────────────────
 
 async function blobToDownload(el: HTMLElement, filename: string) {
-  const blob = await domtoimage.toBlob(el, { scale: 2, bgcolor: "#ffffff" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.download = filename;
-  link.href = url;
-  link.click();
-  URL.revokeObjectURL(url);
+  const canvas = await html2canvas(el, {
+    scale: 3,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+  });
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
 }
 
 export async function downloadInvoiceFromElement(
@@ -693,15 +701,24 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
         document.fonts.load("400 16px 'Cairo'"),
         document.fonts.ready,
       ]).catch(() => {});
-      domtoimage
-        .toBlob(el, { scale: 2, bgcolor: "#ffffff" })
-        .then((blob: Blob) => {
-          if (cancelled) return;
+      try {
+        const canvas = await html2canvas(el, {
+          scale: 3,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+        });
+        if (cancelled) return;
+        canvas.toBlob((blob) => {
+          if (cancelled || !blob) return;
           const url = URL.createObjectURL(blob);
           setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
-        })
-        .catch((e: unknown) => console.error("Invoice pre-build failed:", e))
-        .finally(() => { if (!cancelled) setBuilding(false); });
+          if (!cancelled) setBuilding(false);
+        }, "image/png");
+      } catch (e) {
+        console.error("Invoice pre-build failed:", e);
+        if (!cancelled) setBuilding(false);
+      }
     }, 80);
     return () => {
       cancelled = true;
