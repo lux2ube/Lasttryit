@@ -60,6 +60,20 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - Minimum $1 USD floor on ALL income: if a calculated fee (crypto service fee) or spread (cash FX spread) is >$0 but <$1, it's bumped to $1. Zero fees remain zero. Constants: `MIN_INCOME_USD = 1.0` in `server/storage.ts` (confirm flow), `MIN_SEND_FEE_USD = 1.0` in `server/routes.ts` (send crypto preview/execute), `MIN_FEE_USD = 1.0` in `client/src/pages/records.tsx` (fee breakdown preview)
 - Network fee (gas) is always fetched from the `crypto_networks` table via provider's `networkId` FK — NOT from the legacy `provider.networkFeeUsd` field (which is only a seed-time snapshot). Both the send crypto routes and the record form fee breakdown look up the network table.
 
+**Kuraimi ePay Integration**
+- Separate page: `/kuraimi` — send payments, view history, reverse transactions
+- Backend service: `server/kuraimi-service.ts` — direct Axios calls to Kuraimi Bank API (npm package has broken `main` field, so SDK is implemented inline)
+- DB table: `kuraimi_payments` — tracks all payment attempts with status, bank ref, API response
+- API routes: `GET /api/kuraimi/status`, `GET /api/kuraimi/payments`, `POST /api/kuraimi/send-payment`, `POST /api/kuraimi/reverse-payment/:id`, `POST /api/kuraimi/link-record/:id`
+- Customer verification webhook: `POST /api/webhooks/kuraimi/verify-customer` (Kuraimi Bank calls this to verify customers)
+- Env secrets: `KURAIMI_USERNAME`, `KURAIMI_PASSWORD` (required), `KURAIMI_ENV` (UAT/PROD, default UAT), `KURAIMI_MERCHANT_NAME` (default "Coin Cash"), `KURAIMI_BASE_URL` (override for PROD)
+- Verify webhook auth: `KURAIMI_VERIFY_USERNAME`, `KURAIMI_VERIFY_PASSWORD` (Basic auth that Kuraimi uses to call our verify endpoint)
+- UAT base URL: `https://web.krmbank.net.ye:44746`
+- Payment API: `/alk-payments-exp/v1/PHEPaymentAPI/EPayment/SendPayment` (POST, Basic auth)
+- Reversal API: `/alk-payments-exp/v1/PHEPaymentAPI/EPayment/ReversePayment` (POST, Basic auth)
+- PIN is base64-encoded before sending to API
+- Each payment gets unique ref: `CC_{timestamp}_{random}`
+
 **KYC Document Storage**
 - Bucket: `kyc-documents` (Supabase Storage, private, 10MB limit)
 - Upload route: `POST /api/customers/:id/kyc-upload` (multipart/form-data, field: `file`)

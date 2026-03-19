@@ -1196,6 +1196,37 @@ export const insertCryptoSendSchema = createInsertSchema(cryptoSends).omit({
 export type InsertCryptoSend = z.infer<typeof insertCryptoSendSchema>;
 export type CryptoSend = typeof cryptoSends.$inferSelect;
 
+// ─── Kuraimi Payments ──────────────────────────────────────────────────────────
+
+export const kuraimiPayments = pgTable("kuraimi_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  refNo: text("ref_no").notNull().unique(),
+  bankRefNo: text("bank_ref_no"),
+  customerId: varchar("customer_id"),
+  customerName: text("customer_name"),
+  scustId: text("scust_id").notNull(),
+  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("YER"),
+  merchantName: text("merchant_name").notNull(),
+  direction: text("direction").notNull().default("payment"),
+  status: text("status").notNull().default("pending"),
+  recordId: varchar("record_id"),
+  apiCode: integer("api_code"),
+  apiMessage: text("api_message"),
+  apiMessageDesc: text("api_message_desc"),
+  reversedAt: timestamp("reversed_at"),
+  reversalRefNo: text("reversal_ref_no"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const insertKuraimiPaymentSchema = createInsertSchema(kuraimiPayments).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type InsertKuraimiPayment = z.infer<typeof insertKuraimiPaymentSchema>;
+export type KuraimiPayment = typeof kuraimiPayments.$inferSelect;
+
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
 export const sessions = pgTable("sessions", {

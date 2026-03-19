@@ -40,6 +40,7 @@ import Currencies from "@/pages/accounting/currencies";
 import CustomerGroups from "@/pages/customers/customer-groups";
 import FollowUps from "@/pages/customers/follow-ups";
 import SendCrypto from "@/pages/send-crypto";
+import KuraimiPage from "@/pages/kuraimi";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -126,6 +127,7 @@ function AppLayout() {
               <Route path="/reports/balance-sheet" component={BalanceSheet} />
               <Route path="/reports/income-statement" component={IncomeStatement} />
               <Route path="/reports/customer-ledger" component={CustomerLedger} />
+              <Route path="/kuraimi" component={KuraimiPage} />
               <Route path="/staff" component={Staff} />
               <Route path="/settings" component={SettingsPage} />
               <Route path="/system-variables" component={SystemVariables} />

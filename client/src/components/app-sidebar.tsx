@@ -50,6 +50,7 @@ import {
   MessageSquare,
   Crown,
   SendHorizontal,
+  Landmark,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
@@ -69,6 +70,7 @@ const navGroups: NavGroup[] = [
       { title: "Dashboard",    url: "/",            icon: LayoutDashboard },
       { title: "Records",      url: "/records",     icon: FileText },
       { title: "Send Crypto",  url: "/send-crypto", icon: SendHorizontal },
+      { title: "Kuraimi ePay", url: "/kuraimi",     icon: Landmark },
     ],
   },
   {

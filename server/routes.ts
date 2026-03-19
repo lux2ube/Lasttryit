@@ -2530,5 +2530,92 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Kuraimi ePay ──────────────────────────────────────────────────────────
+
+  const kuraimiService = await import("./kuraimi-service");
+
+  app.get("/api/kuraimi/status", requireAuth, async (_req, res) => {
+    res.json({ configured: kuraimiService.isConfigured() });
+  });
+
+  app.get("/api/kuraimi/payments", requireAuth, async (req, res) => {
+    try {
+      const limit = parseInt(queryStr(req.query.limit) || "50");
+      const page = parseInt(queryStr(req.query.page) || "1");
+      const result = await kuraimiService.getPayments({ limit, offset: (page - 1) * limit });
+      res.json({ ...result, page, limit, totalPages: Math.ceil(result.total / limit) });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/kuraimi/payments/:id", requireAuth, async (req, res) => {
+    try {
+      const p = await kuraimiService.getPayment(req.params.id);
+      if (!p) return res.status(404).json({ message: "Payment not found" });
+      res.json(p);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/kuraimi/send-payment", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (req, res) => {
+    try {
+      if (!kuraimiService.isConfigured()) return res.status(400).json({ message: "Kuraimi credentials not configured" });
+      const { scustId, amount, currency, pinPass, customerId, customerName } = req.body;
+      if (!scustId || !amount || !pinPass) return res.status(400).json({ message: "scustId, amount, and pinPass are required" });
+      const result = await kuraimiService.sendPayment({
+        scustId, amount: parseFloat(amount), currency, pinPass,
+        customerId, customerName, createdBy: actorId(req) ?? undefined,
+      });
+      res.json(result);
+    } catch (e: any) {
+      console.error("[Kuraimi] Payment error:", e.message);
+      res.status(e.statusCode || 500).json({ message: e.data?.Message || e.message || "Payment failed" });
+    }
+  });
+
+  app.post("/api/kuraimi/reverse-payment/:id", requireAuth, requireRole("admin", "operations_manager"), async (req, res) => {
+    try {
+      if (!kuraimiService.isConfigured()) return res.status(400).json({ message: "Kuraimi credentials not configured" });
+      const result = await kuraimiService.reversePayment(req.params.id);
+      res.json(result);
+    } catch (e: any) {
+      console.error("[Kuraimi] Reversal error:", e.message);
+      res.status(e.statusCode || 500).json({ message: e.data?.Message || e.message || "Reversal failed" });
+    }
+  });
+
+  app.post("/api/kuraimi/link-record/:id", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (req, res) => {
+    try {
+      const { recordId } = req.body;
+      if (!recordId) return res.status(400).json({ message: "recordId is required" });
+      const updated = await kuraimiService.linkPaymentToRecord(req.params.id, recordId);
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/webhooks/kuraimi/verify-customer", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const expectedUser = process.env.KURAIMI_VERIFY_USERNAME;
+    const expectedPass = process.env.KURAIMI_VERIFY_PASSWORD;
+    if (!expectedUser || !expectedPass) return res.status(503).json({ Code: "0", Message: "Verification endpoint not configured" });
+    const expected = `Basic ${Buffer.from(`${expectedUser}:${expectedPass}`).toString("base64")}`;
+    if (authHeader !== expected) return res.status(401).json({ Code: "0", Message: "Unauthorized" });
+    try {
+      const { SCustID, MobileNo } = req.body;
+      if (!SCustID) return res.json({ Code: "0", Message: "Missing SCustID", SCustID: "" });
+      const customer = await storage.getCustomerByCustomerId(SCustID);
+      if (customer) {
+        return res.json({ Code: "1", Message: "Customer verified", SCustID: customer.customerId || SCustID });
+      }
+      if (MobileNo) {
+        const allCustomers = await storage.getAllCustomers({});
+        const byPhone = allCustomers.find((c: any) => c.phonePrimary === MobileNo || (c.phoneSecondary || []).includes(MobileNo));
+        if (byPhone) return res.json({ Code: "1", Message: "Customer verified", SCustID: byPhone.customerId || SCustID });
+      }
+      return res.json({ Code: "0", Message: "Customer not found", SCustID: "" });
+    } catch (e: any) {
+      console.error("[Kuraimi] Verify customer error:", e.message);
+      res.json({ Code: "0", Message: "Internal error", SCustID: "" });
+    }
+  });
+
   return httpServer;
 }
