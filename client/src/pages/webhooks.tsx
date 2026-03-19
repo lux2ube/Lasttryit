@@ -186,10 +186,10 @@ export default function Webhooks() {
   });
 
   const clearGarbageMutation = useMutation({
-    mutationFn: () => apiRequest("DELETE", `/api/sms-raw-inbox?pattern=%7Bbody%7D`),
+    mutationFn: () => apiRequest("DELETE", `/api/sms-raw-inbox`),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/sms-raw-inbox"] });
-      toast({ title: `Cleared ${data?.deleted ?? 0} test garbage rows` });
+      toast({ title: `Cleared ${data?.deleted ?? 0} test entries` });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -904,6 +904,20 @@ export default function Webhooks() {
                 >
                   {processAllMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Play className="w-3.5 h-3.5 mr-1.5" />}
                   Process All Pending
+                </Button>
+              )}
+              {(inboxEntries?.length ?? 0) > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={clearGarbageMutation.isPending}
+                  onClick={() => clearGarbageMutation.mutate()}
+                  data-testid="button-clear-inbox"
+                  className="text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60"
+                >
+                  {clearGarbageMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1.5" />}
+                  Clear All
                 </Button>
               )}
             </div>

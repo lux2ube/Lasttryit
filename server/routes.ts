@@ -1486,14 +1486,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
-  // Bulk-clear placeholder garbage rows (e.g. {body} stored literally by test tool)
+  // Bulk-clear all inbox entries (test cleanup)
   app.delete("/api/sms-raw-inbox", requireAuth, requireRole("admin"), async (req, res) => {
     try {
-      const pattern = (req.query.pattern as string) ?? "{body}";
       const all = await storage.getSmsRawInboxEntries();
-      const toDelete = all.filter(e => e.raw_message === pattern);
-      await Promise.all(toDelete.map(e => storage.deleteSmsRawInboxEntry(e.id)));
-      res.json({ deleted: toDelete.length });
+      await Promise.all(all.map(e => storage.deleteSmsRawInboxEntry(e.id)));
+      res.json({ deleted: all.length });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
