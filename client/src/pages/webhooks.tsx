@@ -192,15 +192,19 @@ export default function Webhooks() {
 
   const selectedConfig = configs?.find(c => c.id === selectedConfigId);
 
-  const { data: publicConfig } = useQuery<{ smsWebhookSecret: string }>({
+  const { data: publicConfig } = useQuery<{ smsWebhookSecret: string; supabaseAnonKey: string }>({
     queryKey: ["/api/public-config"],
   });
 
   // Edge Function — GET, everything in the URL, no headers, no body needed
+  // Supabase gateway requires ?apikey= for routing; our function then validates ?secret= for security
   const SUPABASE_PROJECT = "rhdcobxxezxwesksnbrt";
-  const secret = publicConfig?.smsWebhookSecret ?? "loading…";
+  const anonKey = publicConfig?.supabaseAnonKey ?? "";
+  const secret = publicConfig?.smsWebhookSecret ?? "";
   const edgeFnUrl = (slug: string) =>
-    `https://${SUPABASE_PROJECT}.supabase.co/functions/v1/sms-ingest?secret=${secret}&slug=${slug}&message={body}&sender={sender}`;
+    anonKey && secret
+      ? `https://${SUPABASE_PROJECT}.supabase.co/functions/v1/sms-ingest?apikey=${anonKey}&secret=${secret}&slug=${slug}&message={body}&sender={sender}`
+      : "loading…";
 
   // Config CRUD mutations
   const createConfigMutation = useMutation({
