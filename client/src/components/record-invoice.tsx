@@ -182,53 +182,71 @@ async function getLogoDataUrl(): Promise<string> {
 // Preload silently at module init
 getLogoDataUrl();
 
-// ── Color tokens ──────────────────────────────────────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────────
 
 const GOLD      = "#F5A623";
 const GOLD_DARK = "#C4850C";
-const GOLD_BG   = "#FEF9F0";
-const DARK      = "#1A1A2E";
-const TEXT      = "#2D2D3F";
+const NAVY      = "#0D1B2A";
+const NAVY2     = "#132030";
+const TEXT      = "#1A1A2E";
 const TEXT_SEC  = "#6B7280";
-const SEP       = "#E8E4DF";
+const SEP       = "rgba(255,255,255,0.08)";
 const WHITE     = "#FFFFFF";
-const GREEN     = "#16A34A";
+const GREEN     = "#4ADE80";
 const MONO_FONT = "'Courier New', 'Lucida Console', monospace";
 const AR_FONT   = "'Cairo', Tahoma, Arial, sans-serif";
 
-// ── Section divider ───────────────────────────────────────────────────────────
-const Divider = () => (
-  <div style={{ height: "1px", background: SEP, margin: "0 24px" }} />
+// Receipt canvas: 540×960px → captured at scale:2 → output 1080×1920px
+const W = "540px";
+const H = "960px";
+
+// ── Tiny helpers (internal to template) ───────────────────────────────────────
+
+const HR = () => (
+  <div style={{ height: "1px", background: "rgba(0,0,0,0.07)", margin: "0 28px" }} />
 );
 
-// ── Single field row (label stacked above value) ───────────────────────────────
-const Field = ({ label, labelAr, value, mono, accent, large, hash }: {
+const SectionBand = ({ en, ar }: { en: string; ar?: string }) => (
+  <div style={{
+    padding: "9px 28px 7px",
+    background: "rgba(245,166,35,0.10)",
+    borderLeft: `4px solid ${GOLD}`,
+    display: "flex", alignItems: "center", gap: "8px",
+  }}>
+    <span style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "1.4px", textTransform: "uppercase", color: GOLD_DARK }}>
+      {en}
+    </span>
+    {ar && (
+      <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", fontSize: "11px", fontWeight: 600, color: GOLD_DARK, textTransform: "none", letterSpacing: 0 }}>
+        · {ar}
+      </span>
+    )}
+  </div>
+);
+
+const F = ({ label, labelAr, value, mono, accent, large, hash, small }: {
   label: string; labelAr?: string; value?: string | React.ReactNode;
-  mono?: boolean; accent?: string; large?: boolean; hash?: boolean;
+  mono?: boolean; accent?: string; large?: boolean; hash?: boolean; small?: boolean;
 }) => {
   if (!value && value !== 0) return null;
   return (
-    <div style={{ padding: "9px 24px" }}>
-      <div style={{
-        fontSize: "10px", fontWeight: 600, color: TEXT_SEC,
-        textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "3px",
-        display: "flex", alignItems: "center", gap: "6px",
-      }}>
+    <div style={{ padding: "10px 28px" }}>
+      <div style={{ fontSize: "9px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "3px", display: "flex", alignItems: "center", gap: "6px" }}>
         {label}
         {labelAr && (
-          <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "#9CA3AF" }}>
+          <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "10px" }}>
             · {labelAr}
           </span>
         )}
       </div>
       <div style={{
-        fontSize: large ? "15px" : "13px",
+        fontSize: large ? "17px" : small ? "11px" : "14px",
         fontWeight: large ? 700 : 600,
         fontFamily: mono ? MONO_FONT : "inherit",
         color: accent ?? TEXT,
         wordBreak: hash ? "break-all" : "normal",
         overflowWrap: hash ? "break-word" : "normal",
-        lineHeight: 1.45,
+        lineHeight: 1.4,
       }}>
         {value}
       </div>
@@ -236,43 +254,33 @@ const Field = ({ label, labelAr, value, mono, accent, large, hash }: {
   );
 };
 
-// ── Two-column row (for compact pairs like amount + fee) ───────────────────────
-const Row2 = ({ left, right }: {
-  left: { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean };
-  right: { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean };
+const R2 = ({ left, right }: {
+  left:  { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean; small?: boolean };
+  right: { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean; small?: boolean };
 }) => {
   if (!left.value && !right.value) return null;
   return (
-    <div style={{ display: "flex", padding: "9px 24px", gap: "16px" }}>
-      {[left, right].map((col, i) => col.value ? (
+    <div style={{ display: "flex", padding: "10px 28px", gap: "20px" }}>
+      {[left, right].map((col, i) => (
         <div key={i} style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: "10px", fontWeight: 600, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "3px", display: "flex", gap: "5px", alignItems: "center" }}>
-            {col.label}
-            {col.labelAr && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "#9CA3AF" }}>· {col.labelAr}</span>}
-          </div>
-          <div style={{ fontSize: "13px", fontWeight: 600, color: col.accent ?? TEXT, fontFamily: col.mono ? MONO_FONT : "inherit" }}>
-            {col.value}
-          </div>
+          {col.value ? (
+            <>
+              <div style={{ fontSize: "9px", fontWeight: 700, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "3px", display: "flex", gap: "5px", alignItems: "center" }}>
+                {col.label}
+                {col.labelAr && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#9CA3AF", fontSize: "10px" }}>· {col.labelAr}</span>}
+              </div>
+              <div style={{ fontSize: col.small ? "11px" : "14px", fontWeight: 600, color: col.accent ?? TEXT, fontFamily: col.mono ? MONO_FONT : "inherit", lineHeight: 1.4 }}>
+                {col.value}
+              </div>
+            </>
+          ) : null}
         </div>
-      ) : <div key={i} style={{ flex: 1 }} />)}
+      ))}
     </div>
   );
 };
 
-// ── Section header band ────────────────────────────────────────────────────────
-const Band = ({ en, ar }: { en: string; ar?: string }) => (
-  <div style={{
-    background: GOLD_BG, padding: "5px 24px",
-    fontSize: "9.5px", fontWeight: 700, letterSpacing: "1px",
-    textTransform: "uppercase", color: GOLD_DARK,
-    display: "flex", alignItems: "center", gap: "6px",
-  }}>
-    {en}
-    {ar && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>· {ar}</span>}
-  </div>
-);
-
-// ── Invoice Template (exported for use in dialog) ─────────────────────────────
+// ── Invoice Template — 1080×1920 receipt ─────────────────────────────────────
 
 export function InvoiceTemplate({
   record, customer, logoSrc,
@@ -308,181 +316,196 @@ export function InvoiceTemplate({
   const logo = logoSrc ?? "/coincash-logo.png";
 
   const amountStr = `${fmt(amount, isCrypto ? 6 : 2)} ${record.currency}`;
-  const hasFees = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
+  const hasFees   = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
+
+  const displayTotal = totalClientAmount !== null
+    ? fmt(totalClientAmount, 2)
+    : principalUsd !== null ? fmt(principalUsd, 2) : fmt(amount, isCrypto ? 4 : 2);
+  const displayCcy = principalUsd !== null || totalClientAmount !== null ? "USD" : record.currency;
+  const showBreakdown = totalClientAmount !== null && principalUsd !== null && Math.abs(totalClientAmount - principalUsd) > 0.001;
 
   return (
     <div style={{
-      width: "480px",
+      width: W,
+      height: H,
       background: WHITE,
       fontFamily: "'Segoe UI', 'Inter', system-ui, sans-serif",
       direction: "ltr",
       color: TEXT,
-      fontSize: "13px",
-      lineHeight: "1.5",
-      borderRadius: "16px",
+      fontSize: "14px",
       overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
     }}>
 
-      {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-      <div style={{ background: DARK, padding: "22px 28px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+      {/* ══ HEADER ═══════════════════════════════════════════════════════════ */}
+      <div style={{ background: NAVY, padding: "30px 32px 24px", flexShrink: 0 }}>
+        {/* Brand row */}
+        <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "20px" }}>
           <img
             src={logo}
             alt="Coin Cash"
             crossOrigin="anonymous"
-            style={{ width: "44px", height: "44px", objectFit: "contain", borderRadius: "10px", background: WHITE, padding: "3px" }}
+            style={{ width: "70px", height: "70px", objectFit: "contain", borderRadius: "16px", background: WHITE, padding: "5px", flexShrink: 0 }}
           />
           <div>
-            <div style={{ color: WHITE, fontSize: "20px", fontWeight: 800, lineHeight: 1.1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
-            <div style={{ color: GOLD, fontSize: "10.5px", fontWeight: 500, marginTop: "2px", letterSpacing: "0.3px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
+            <div style={{ color: WHITE, fontSize: "30px", fontWeight: 900, lineHeight: 1.1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
+            <div style={{ color: GOLD, fontSize: "12px", fontWeight: 600, marginTop: "4px", letterSpacing: "0.4px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
           </div>
         </div>
+        {/* Thin gold separator */}
+        <div style={{ height: "1px", background: "rgba(245,166,35,0.3)", marginBottom: "16px" }} />
+        {/* Record # + Date */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "9.5px", fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "2px" }}>Transaction Receipt</div>
-            <div style={{ color: WHITE, fontSize: "11px", fontFamily: MONO_FONT, fontWeight: 600 }}>{record.recordNumber}</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "4px" }}>Transaction Receipt</div>
+            <div style={{ color: WHITE, fontSize: "15px", fontFamily: MONO_FONT, fontWeight: 700, letterSpacing: "0.5px" }}>{record.recordNumber}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "9.5px", fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "2px" }}>Date</div>
-            <div style={{ color: WHITE, fontSize: "11px" }}>{confirmedAt(record)}</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", marginBottom: "4px" }}>Date</div>
+            <div style={{ color: WHITE, fontSize: "14px", fontWeight: 600 }}>{confirmedAt(record)}</div>
           </div>
         </div>
       </div>
 
-      {/* ══ TOTAL BAND ══════════════════════════════════════════════════════ */}
-      <div style={{ background: GOLD_BG, padding: "18px 28px", borderBottom: `2px solid ${GOLD}22` }}>
+      {/* ══ AMOUNT HERO ══════════════════════════════════════════════════════ */}
+      <div style={{ background: NAVY2, padding: "26px 32px 26px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: "10px", fontWeight: 700, color: GOLD_DARK, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "8px" }}>
               {isInflow
-                ? <span>Total Credit <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0 }}>· لكم</span></span>
-                : <span>Total Debit <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0 }}>· عليكم</span></span>}
+                ? <span>Total Credit · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
+                : <span>Total Debit · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
             </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-              <span style={{ color: DARK, fontSize: "38px", fontWeight: 800, lineHeight: 1, letterSpacing: "-1.5px" }}>
-                {totalClientAmount !== null
-                  ? fmt(totalClientAmount, 2)
-                  : (principalUsd !== null ? fmt(principalUsd, 2) : fmt(amount, isCrypto ? 4 : 2))}
+            <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+              <span style={{ color: WHITE, fontSize: "60px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2.5px" }}>
+                {displayTotal}
               </span>
-              <span style={{ color: GOLD_DARK, fontSize: "17px", fontWeight: 700 }}>
-                {principalUsd !== null || totalClientAmount !== null ? "USD" : record.currency}
+              <span style={{ color: GOLD, fontSize: "22px", fontWeight: 800, letterSpacing: "0.5px" }}>
+                {displayCcy}
               </span>
             </div>
-            {totalClientAmount !== null && principalUsd !== null && Math.abs(totalClientAmount - principalUsd) > 0.001 && (
-              <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "4px" }}>
-                {fmt(principalUsd, 2)} USD {isInflow ? "−" : "+"} ${fmt(Math.abs(totalClientAmount - principalUsd), 2)} fees
+            {showBreakdown && (
+              <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "12px", marginTop: "7px", fontWeight: 500 }}>
+                {fmt(principalUsd!, 2)} {isInflow ? "−" : "+"} ${fmt(Math.abs(totalClientAmount! - principalUsd!), 2)} fees
               </div>
             )}
           </div>
+          {/* Direction badge */}
           <div style={{
-            background: isInflow ? "#16A34A22" : "#EF444422",
-            border: `1.5px solid ${isInflow ? "#16A34A44" : "#EF444444"}`,
-            borderRadius: "10px", padding: "6px 14px", textAlign: "center",
+            background: isInflow ? "rgba(74,222,128,0.15)" : "rgba(248,113,113,0.15)",
+            border: `2px solid ${isInflow ? "rgba(74,222,128,0.45)" : "rgba(248,113,113,0.45)"}`,
+            borderRadius: "16px",
+            padding: "12px 22px",
+            textAlign: "center",
+            flexShrink: 0,
+            marginLeft: "16px",
           }}>
-            <div style={{ fontSize: "18px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
-            <div style={{ fontSize: "9px", fontWeight: 700, color: isInflow ? GREEN : "#DC2626", marginTop: "3px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+            <div style={{ fontSize: "30px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: isInflow ? GREEN : "#F87171", marginTop: "5px", letterSpacing: "1px", textTransform: "uppercase" }}>
               {isInflow ? "Received" : "Sent"}
             </div>
           </div>
         </div>
       </div>
 
-      {/* ══ TRANSACTION DETAILS ═════════════════════════════════════════════ */}
-      <Band en="Transaction Details" ar="تفاصيل العملية" />
+      {/* Gold accent bar */}
+      <div style={{ height: "4px", background: `linear-gradient(90deg, ${GOLD_DARK}, ${GOLD}, ${GOLD_DARK})`, flexShrink: 0 }} />
 
-      <Field label="Type" labelAr="نوع العملية" value={typeLabel(record.type, record.direction)} large />
-      <Divider />
-      <Row2
-        left={{ label: "Amount", labelAr: "المبلغ", value: amountStr, mono: true, accent: TEXT }}
-        right={principalUsd !== null && record.currency !== "USD"
-          ? { label: "USD Equivalent", labelAr: "المعادل", value: `$${fmt(principalUsd, 2)}`, accent: GREEN }
-          : { label: "", value: undefined }}
-      />
+      {/* ══ DETAILS BODY ═════════════════════════════════════════════════════ */}
+      <div style={{ flex: 1, background: WHITE, display: "flex", flexDirection: "column", overflowY: "hidden" }}>
 
-      {hasFees && (
-        <>
-          <Divider />
-          <Row2
-            left={feeAmountUsd !== null && feeAmountUsd > 0
-              ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
-              : { label: "", value: undefined }}
-            right={netFeeUsd > 0
-              ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
-              : { label: "", value: undefined }}
-          />
-        </>
-      )}
+        {/* —— Transaction Details —— */}
+        <SectionBand en="Transaction Details" ar="تفاصيل العملية" />
 
-      {record.assetOrProviderName && (
-        <>
-          <Divider />
-          <Field label="Provider" labelAr="المزود" value={record.assetOrProviderName} />
-        </>
-      )}
+        <F label="Type" labelAr="نوع العملية" value={typeLabel(record.type, record.direction)} large />
+        <HR />
+        <R2
+          left={{ label: "Amount", labelAr: "المبلغ", value: amountStr, mono: true }}
+          right={principalUsd !== null && record.currency !== "USD"
+            ? { label: "USD Equivalent", labelAr: "المعادل", value: `$${fmt(principalUsd, 2)}`, accent: "#16A34A" }
+            : { label: "", value: undefined }}
+        />
 
-      {(record.clientSenderName || record.clientRecipientName) && (
-        <>
-          <Divider />
-          <Row2
-            left={record.clientSenderName ? { label: "Sender", labelAr: "المرسل", value: record.clientSenderName } : { label: "", value: undefined }}
-            right={record.clientRecipientName ? { label: "Recipient", labelAr: "المستلم", value: record.clientRecipientName } : { label: "", value: undefined }}
-          />
-        </>
-      )}
+        {hasFees && (
+          <>
+            <HR />
+            <R2
+              left={feeAmountUsd !== null && feeAmountUsd > 0
+                ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
+                : { label: "", value: undefined }}
+              right={netFeeUsd > 0
+                ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
+                : { label: "", value: undefined }}
+            />
+          </>
+        )}
 
-      {record.txidOrReferenceNumber && (
-        <>
-          <Divider />
-          <Field label="Reference / TXID" labelAr="رقم المرجع" value={record.txidOrReferenceNumber} mono hash accent={GOLD_DARK} />
-        </>
-      )}
+        {record.assetOrProviderName && (<><HR /><F label="Provider" labelAr="المزود" value={record.assetOrProviderName} /></>)}
 
-      {record.networkOrId && (
-        <>
-          <Divider />
-          <Field label="Address / ID" labelAr="العنوان/المعرف" value={record.networkOrId} mono hash />
-        </>
-      )}
+        {(record.clientSenderName || record.clientRecipientName) && (
+          <>
+            <HR />
+            <R2
+              left={record.clientSenderName ? { label: "Sender", labelAr: "المرسل", value: record.clientSenderName } : { label: "", value: undefined }}
+              right={record.clientRecipientName ? { label: "Recipient", labelAr: "المستلم", value: record.clientRecipientName } : { label: "", value: undefined }}
+            />
+          </>
+        )}
 
-      {isCrypto && record.blockNumberOrBatchId && (
-        <>
-          <Divider />
-          <Field label="Block" value={record.blockNumberOrBatchId} mono />
-        </>
-      )}
+        {record.txidOrReferenceNumber && (
+          <><HR /><F label="Reference / TXID" labelAr="رقم المرجع" value={record.txidOrReferenceNumber} mono hash accent={GOLD_DARK} small /></>
+        )}
 
-      {/* ══ CLIENT INFO ═════════════════════════════════════════════════════ */}
-      <Band en="Client Info" ar="بيانات العميل" />
+        {record.networkOrId && (
+          <><HR /><F label="Address / ID" labelAr="العنوان/المعرف" value={record.networkOrId} mono hash small /></>
+        )}
 
-      <Field label="Name" labelAr="الاسم" value={clientName} large />
-      {customerId !== "—" && (
-        <>
-          <Divider />
-          <Row2
-            left={{ label: "Customer ID", value: customerId, mono: true }}
-            right={clientPhone !== "—" ? { label: "Phone", value: clientPhone } : { label: "", value: undefined }}
-          />
-        </>
-      )}
+        {isCrypto && record.blockNumberOrBatchId && (
+          <><HR /><F label="Block" value={record.blockNumberOrBatchId} mono /></>
+        )}
 
-      {/* ── Notes ─────────────────────────────────────────────────────────── */}
-      {safeNotes && (
-        <>
-          <Band en="Note" />
-          <div style={{ padding: "9px 24px 12px", color: TEXT, fontSize: "12px", lineHeight: 1.5 }}>
-            {safeNotes}
+        {/* —— Client Info —— */}
+        <SectionBand en="Client Info" ar="بيانات العميل" />
+        <F label="Name" labelAr="الاسم" value={clientName} large />
+        {customerId !== "—" && (
+          <>
+            <HR />
+            <R2
+              left={{ label: "Customer ID", value: customerId, mono: true }}
+              right={clientPhone !== "—" ? { label: "Phone", value: clientPhone } : { label: "", value: undefined }}
+            />
+          </>
+        )}
+
+        {safeNotes && (
+          <>
+            <HR />
+            <F label="Note" value={safeNotes} />
+          </>
+        )}
+
+        {/* Spacer pushes footer to bottom */}
+        <div style={{ flex: 1 }} />
+
+        {/* ── Inner footer brand strip ── */}
+        <div style={{ padding: "12px 28px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ color: "#9CA3AF", fontSize: "9px", letterSpacing: "1.2px", textTransform: "uppercase", fontWeight: 600 }}>
+            Verified · Secure · Licensed
           </div>
-        </>
-      )}
+          <div style={{ color: "#9CA3AF", fontSize: "9px", fontFamily: MONO_FONT }}>
+            {record.recordNumber}
+          </div>
+        </div>
+      </div>
 
-      {/* ══ FOOTER ══════════════════════════════════════════════════════════ */}
-      <div style={{ height: "3px", background: `linear-gradient(90deg, ${GOLD}, ${GOLD_DARK})` }} />
-      <div style={{ background: DARK, padding: "14px 28px", display: "flex", justifyContent: "center", alignItems: "center" }}>
-        <div style={{
-          color: GOLD, fontSize: "15px", fontWeight: 700,
-          fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate",
-        }}>
+      {/* ══ FOOTER ═══════════════════════════════════════════════════════════ */}
+      <div style={{ background: NAVY, padding: "20px 32px", flexShrink: 0, textAlign: "center" }}>
+        <div style={{ color: GOLD, fontSize: "18px", fontWeight: 700, fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", marginBottom: "6px" }}>
           شكراً لاختياركم كوين كاش
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.28)", fontSize: "9px", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600 }}>
+          Coin Cash — Trust · Speed · Integrity
         </div>
       </div>
     </div>
@@ -743,9 +766,22 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
         </Button>
       </div>
 
-      {/* Invoice — rendered once, ref captured for fast download */}
-      <div ref={invoiceRef} style={{ display: "inline-block" }}>
-        <InvoiceTemplate record={enriched} customer={customer} logoSrc={logoSrc} />
+      {/* Invoice — full-size element for capture, scaled down for preview */}
+      <div style={{
+        width: "270px",
+        height: "480px",
+        overflow: "hidden",
+        borderRadius: "8px",
+        border: "1px solid rgba(0,0,0,0.12)",
+        flexShrink: 0,
+        alignSelf: "center",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
+      }}>
+        <div style={{ transform: "scale(0.5)", transformOrigin: "top left", width: "540px", height: "960px" }}>
+          <div ref={invoiceRef} style={{ display: "inline-block" }}>
+            <InvoiceTemplate record={enriched} customer={customer} logoSrc={logoSrc} />
+          </div>
+        </div>
       </div>
     </div>
   );
