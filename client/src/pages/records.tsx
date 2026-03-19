@@ -25,7 +25,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { InfoTip } from "@/components/ui/info-tip";
-import { InvoiceDownloadButton } from "@/components/record-invoice";
+import { InvoiceDownloadButton, InvoiceViewer, CopyWhatsAppButton } from "@/components/record-invoice";
 import { format } from "date-fns";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -284,17 +284,21 @@ function RecordDetailDialog({
     ["Last Updated", format(new Date(record.updatedAt), "PPpp")],
   ];
 
+  const [showInternalDetails, setShowInternalDetails] = useState(false);
+  const isConfirmed = record.processingStage === "confirmed";
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className={`${isConfirmed ? "max-w-lg" : "max-w-xl"} max-h-[90vh] overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Eye className="w-4 h-4 text-primary" />
-            Record Detail — {record.recordNumber}
+            {isConfirmed ? `Receipt — ${record.recordNumber}` : `Record — ${record.recordNumber}`}
           </DialogTitle>
-          <DialogDescription className="sr-only">Full record details</DialogDescription>
+          <DialogDescription className="sr-only">Record details</DialogDescription>
         </DialogHeader>
 
+        {/* Status badges — always visible */}
         <div className="flex items-center gap-2 flex-wrap">
           {def && <Badge className={`${def.bg} ${def.color}`}>{def.label}</Badge>}
           <Badge className={stageCfg?.color ?? ""}>{stageCfg?.label}</Badge>
@@ -306,41 +310,66 @@ function RecordDetailDialog({
           )}
         </div>
 
-        <div className="space-y-1.5 text-sm">
-          {rows.filter(([, v]) => v).map(([label, value]) => (
-            <div key={label} className="flex gap-2 py-1.5 border-b border-border/40 last:border-0">
-              <span className="w-40 shrink-0 text-muted-foreground text-xs font-medium pt-0.5">{label}</span>
-              <span className={`flex-1 text-foreground break-all ${label === "TX Hash / Reference" ? "font-mono text-xs" : ""}`}>{value}</span>
-            </div>
-          ))}
-        </div>
+        {/* ── Confirmed: show invoice viewer ────────────────────────────── */}
+        {isConfirmed ? (
+          <InvoiceViewer record={record} customer={customer} />
+        ) : (
+          /* ── Not confirmed: show plain detail rows ──────────────────── */
+          <div className="space-y-1.5 text-sm">
+            {rows.filter(([, v]) => v).map(([label, value]) => (
+              <div key={label} className="flex gap-2 py-1.5 border-b border-border/40 last:border-0">
+                <span className="w-40 shrink-0 text-muted-foreground text-xs font-medium pt-0.5">{label}</span>
+                <span className={`flex-1 text-foreground break-all ${label === "TX Hash / Reference" ? "font-mono text-xs" : ""}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
+        {/* ── Internal Details toggle (confirmed records only) ──────────── */}
+        {isConfirmed && (
+          <div>
+            <button
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 w-full"
+              onClick={() => setShowInternalDetails(v => !v)}
+            >
+              {showInternalDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              Internal Details
+            </button>
+            {showInternalDetails && (
+              <div className="space-y-1 mt-1 text-sm border rounded-md p-2 bg-muted/30">
+                {rows.filter(([, v]) => v).map(([label, value]) => (
+                  <div key={label} className="flex gap-2 py-1 border-b border-border/30 last:border-0">
+                    <span className="w-36 shrink-0 text-muted-foreground text-xs font-medium">{label}</span>
+                    <span className="flex-1 text-foreground text-xs break-all">{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Event Log ─────────────────────────────────────────────────── */}
         {record.logEvents && record.logEvents.length > 0 && (
           <div className="mt-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Event Log</p>
             <div className="space-y-1">
               {(record.logEvents as any[]).map((e, i) => {
                 const ACTION_LABELS: Record<string, string> = {
-                  created: "Created",
-                  recorded: "Recorded",
-                  customer_linked: "Customer Linked",
-                  matched: "Matched",
-                  address_whitelisted: "Address Whitelisted",
-                  confirmed: "Confirmed",
-                  cancelled: "Cancelled",
-                  used: "Used in Transaction",
+                  created: "Created", recorded: "Recorded", customer_linked: "Customer Linked",
+                  matched: "Matched", address_whitelisted: "Address Whitelisted",
+                  confirmed: "Confirmed", cancelled: "Cancelled", used: "Used in Transaction",
                 };
                 const label = ACTION_LABELS[e.action] ?? e.action.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
                 return (
                   <div key={i} className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.action === 'address_whitelisted' ? 'bg-emerald-500' : 'bg-primary/50'}`} />
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.action === "address_whitelisted" ? "bg-emerald-500" : "bg-primary/50"}`} />
                       <span className="font-medium text-foreground">{label}</span>
                       <span>·</span>
                       <span>{e.timestamp ? format(new Date(e.timestamp), "PPp") : "—"}</span>
                       {e.customerName && <span className="text-muted-foreground">— {e.customerName}</span>}
                     </div>
-                    {e.action === 'address_whitelisted' && e.address && (
+                    {e.action === "address_whitelisted" && e.address && (
                       <div className="pl-4 text-xs text-emerald-700 dark:text-emerald-400 font-mono">
                         {e.address}{e.network ? ` (${e.network})` : ""}
                       </div>
@@ -352,7 +381,7 @@ function RecordDetailDialog({
           </div>
         )}
 
-        {/* Stage advance info panel — context-aware */}
+        {/* ── Stage advance info panel ───────────────────────────────────── */}
         {!isTerminal && (
           <>
             {stage === "recorded" && !hasCustomer ? (
@@ -365,8 +394,7 @@ function RecordDetailDialog({
             ) : nextStage && stageCfg?.nextDescription ? (
               <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground mb-0.5 flex items-center gap-1">
-                  <ArrowRight className="w-3 h-3" />
-                  {stageCfg.nextLabel}
+                  <ArrowRight className="w-3 h-3" />{stageCfg.nextLabel}
                 </p>
                 <p>{stageCfg.nextDescription}</p>
                 {stage === "draft" && hasCustomer && (
@@ -374,8 +402,6 @@ function RecordDetailDialog({
                 )}
               </div>
             ) : null}
-
-            {/* Cancel info */}
             {stageCfg?.canCancel && (
               <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-muted-foreground">
                 <p className="font-semibold text-destructive mb-0.5 flex items-center gap-1">
@@ -389,7 +415,7 @@ function RecordDetailDialog({
 
         <DialogFooter className="gap-2 flex-wrap">
           <Button variant="outline" onClick={onClose}>Close</Button>
-          <InvoiceDownloadButton record={record} customer={customer} size="default" />
+          {!isConfirmed && <InvoiceDownloadButton record={record} customer={customer} size="default" />}
           {showEdit && (
             <Button variant="outline" onClick={onEdit} data-testid="button-edit-record">
               <Edit2 className="w-3.5 h-3.5 mr-1.5" />
