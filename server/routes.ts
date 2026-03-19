@@ -503,6 +503,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       supabaseProjectId: "rhdcobxxezxwesksnbrt",
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
       supabaseRestUrl: `https://rhdcobxxezxwesksnbrt.supabase.co/rest/v1`,
+      smsWebhookSecret: process.env.SMS_WEBHOOK_SECRET ?? "",
     });
   });
 

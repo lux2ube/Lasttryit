@@ -192,11 +192,15 @@ export default function Webhooks() {
 
   const selectedConfig = configs?.find(c => c.id === selectedConfigId);
 
-  // Edge Function — GET request, all params in URL, no headers, no body
-  // Forward SMS placeholders: {body} = SMS text, {sender} = phone number
+  const { data: publicConfig } = useQuery<{ smsWebhookSecret: string }>({
+    queryKey: ["/api/public-config"],
+  });
+
+  // Edge Function — GET, everything in the URL, no headers, no body needed
   const SUPABASE_PROJECT = "rhdcobxxezxwesksnbrt";
+  const secret = publicConfig?.smsWebhookSecret ?? "loading…";
   const edgeFnUrl = (slug: string) =>
-    `https://${SUPABASE_PROJECT}.supabase.co/functions/v1/sms-ingest?slug=${slug}&message={body}&sender={sender}`;
+    `https://${SUPABASE_PROJECT}.supabase.co/functions/v1/sms-ingest?secret=${secret}&slug=${slug}&message={body}&sender={sender}`;
 
   // Config CRUD mutations
   const createConfigMutation = useMutation({
@@ -558,11 +562,12 @@ export default function Webhooks() {
                 <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-foreground">Secure by design:</strong> The Edge Function runs server-side with its own credentials — no keys exposed to callers.
-                    Validates the slug is active before writing. Only{" "}
+                    <strong className="text-foreground">Secured with a shared secret</strong> embedded in the URL — requests without the correct{" "}
+                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">?secret=</code> are rejected with 401.
+                    Server-side function validates slug and only stores{" "}
                     <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code>,{" "}
                     <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">raw_message</code>,{" "}
-                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code> are stored.
+                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code>.
                   </span>
                 </div>
 

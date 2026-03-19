@@ -3,12 +3,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
+  // Security: validate shared secret in URL — no headers needed
+  const secret = url.searchParams.get("secret")?.trim();
+  const expectedSecret = Deno.env.get("SMS_WEBHOOK_SECRET");
+  if (!expectedSecret || secret !== expectedSecret) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const slug = url.searchParams.get("slug")?.trim();
+  // Accept multiple param names — Forward SMS uses {body} or {text} in URL templates
   const raw_message = (
     url.searchParams.get("message") ??
-    url.searchParams.get("raw_message") ??
-    url.searchParams.get("body") ??
-    url.searchParams.get("text") ?? ""
+    url.searchParams.get("text") ??
+    url.searchParams.get("body") ?? ""
   ).trim();
   const sender = (
     url.searchParams.get("sender") ??
@@ -22,7 +32,6 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-
   if (!raw_message) {
     return new Response(JSON.stringify({ error: "Missing ?message= parameter" }), {
       status: 400,
