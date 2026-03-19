@@ -57,6 +57,7 @@ interface PreviewResult {
   fromAccountCode: string; fromAccountName: string; providerId: string;
   providerName: string; providerDepositFeeRate: string;
   walletBalance: string; bnbBalance: string; walletConfigured: boolean; sufficientBalance: boolean;
+  minFeeApplied?: boolean;
 }
 
 interface PaginatedSends { data: CryptoSend[]; total: number; page: number; limit: number; totalPages: number; }
@@ -693,7 +694,7 @@ export default function SendCrypto() {
                 </div>
                 <div className="px-3 py-2 space-y-0.5">
                   <Row label="USDT on-chain" value={<span className="font-mono">{parseFloat(preview.usdtAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })} USDT</span>} />
-                  <Row label={`Fee (${parseFloat(preview.depositFeeRate).toFixed(2)}%)`} value={<span className="font-mono">+{parseFloat(preview.depositFeeFiat).toLocaleString("en-US", { minimumFractionDigits: 2 })} USD</span>} />
+                  <Row label={`Service fee (${parseFloat(preview.depositFeeRate).toFixed(2)}%)${preview.minFeeApplied ? " — min $1" : ""}`} value={<span className="font-mono">+${parseFloat(preview.depositFeeFiat).toLocaleString("en-US", { minimumFractionDigits: 4 })}</span>} />
                   <Separator className="my-1" />
                   <Row label="Total Debit" value={
                     <span className="font-mono">{(parseFloat(preview.usdtAmount) + parseFloat(preview.depositFeeFiat)).toLocaleString("en-US", { minimumFractionDigits: 2 })} USD</span>

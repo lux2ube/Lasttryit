@@ -26,7 +26,7 @@ import {
 } from "@shared/schema";
 import { runKycGate, detectStructuring, getLiquidityStatus, autoExtractFeeEntries } from "./financial-engine";
 import { getWalletInfo, sendUSDT, validateAddress, checksumAddress } from "./blockchain-service";
-import { cryptoSends, customerGroups, customers } from "@shared/schema";
+import { cryptoSends, cryptoNetworks, customerGroups, customers } from "@shared/schema";
 import crypto from "crypto";
 
 const BCRYPT_ROUNDS = 12;
@@ -2208,19 +2208,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/crypto-sends/account-info", requireAuth, async (_req, res) => {
     try {
-      const { account, provider } = await resolveAccountAndProvider("1521");
+      const { account, provider, network } = await resolveAccountAndProvider("1521");
       if (!account) return res.status(404).json({ message: "Account 1521 (Auto Send Wallet) not found. Create it in Chart of Accounts first." });
       if (!provider) return res.status(400).json({ message: `Account ${account.code} has no linked provider. Set providerId on the account.` });
       const walletInfo = await getWalletInfo();
+      const actualNetworkFee = parseFloat(String(network?.networkFeeUsd ?? provider.networkFeeUsd ?? "0"));
       res.json({
         account: { id: account.id, code: account.code, name: account.name },
         provider: {
           id: provider.id,
           name: provider.name,
-          networkCode: provider.networkCode,
+          networkCode: network?.code || provider.networkCode,
           depositFeeRate: parseFloat(String(provider.depositFeeRate ?? "0")),
           withdrawFeeRate: parseFloat(String(provider.withdrawFeeRate ?? "0")),
-          networkFeeUsd: parseFloat(String(provider.networkFeeUsd ?? "0")),
+          networkFeeUsd: actualNetworkFee,
           fieldType: provider.fieldType,
           fieldName: provider.fieldName,
         },
@@ -2258,11 +2259,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   async function resolveAccountAndProvider(accountIdOrCode: string) {
     const acct = (await storage.getAccount(accountIdOrCode)) ?? (await storage.getAccountByCode(accountIdOrCode));
-    if (!acct) return { account: null, provider: null };
+    if (!acct) return { account: null, provider: null, network: null };
     let provider = null;
+    let network = null;
     if (acct.providerId) provider = await storage.getProvider(acct.providerId);
-    return { account: acct, provider };
+    if (provider?.networkId) {
+      const [net] = await db.select().from(cryptoNetworks).where(eq(cryptoNetworks.id, provider.networkId));
+      network = net ?? null;
+    }
+    return { account: acct, provider, network };
   }
+
+  const MIN_SEND_FEE_USD = 1.0;
 
   app.post("/api/crypto-sends/preview", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (req, res) => {
     try {
@@ -2278,7 +2286,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const customer = await storage.getCustomer(customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
 
-      const { account, provider } = await resolveAccountAndProvider(fromAccountId || "1521");
+      const { account, provider, network } = await resolveAccountAndProvider(fromAccountId || "1521");
       if (!account) return res.status(404).json({ message: "Account not found. Create account 1521 (Auto Send Wallet) in Chart of Accounts first." });
       if (!provider) return res.status(400).json({ message: `Account ${account.code} has no linked provider. Set providerId on the account.` });
 
@@ -2290,8 +2298,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const usdtAmount = parseFloat(amount) || (numFiatAmount > 0 && rate > 0 ? numFiatAmount / rate / (1 + feeRate / 100) : 0);
       if (!usdtAmount || usdtAmount <= 0) return res.status(400).json({ message: "USDT amount must be greater than zero" });
 
-      const depositFeeUsd = usdtAmount * (feeRate / 100);
-      const networkFeeUsd = parseFloat(String(provider.networkFeeUsd ?? "0"));
+      const rawDepositFeeUsd = usdtAmount * (feeRate / 100);
+      const depositFeeUsd = rawDepositFeeUsd > 0 && rawDepositFeeUsd < MIN_SEND_FEE_USD ? MIN_SEND_FEE_USD : rawDepositFeeUsd;
+      const networkFeeUsd = parseFloat(String(network?.networkFeeUsd ?? provider.networkFeeUsd ?? "0"));
       const totalDebitFiat = numFiatAmount;
 
       const walletInfo = await getWalletInfo();
@@ -2303,7 +2312,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         fiatAmount: numFiatAmount.toFixed(4),
         fiatCurrency: fiatCurrency || "USD",
         currency: "USDT",
-        network: provider.networkCode || "BEP20",
+        network: network?.code || provider.networkCode || "BEP20",
         exchangeRate: rate.toFixed(6),
         depositFeeRate: feeRate.toFixed(4),
         depositFeeFiat: depositFeeUsd.toFixed(4),
@@ -2319,6 +2328,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         bnbBalance: walletInfo.bnbBalance,
         walletConfigured: walletInfo.configured,
         sufficientBalance: parseFloat(walletInfo.usdtBalance) >= usdtAmount,
+        minFeeApplied: rawDepositFeeUsd > 0 && rawDepositFeeUsd < MIN_SEND_FEE_USD,
       });
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
   });
@@ -2337,7 +2347,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const customer = await storage.getCustomer(customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
 
-      const { account, provider } = await resolveAccountAndProvider(fromAccountId || "1521");
+      const { account, provider, network } = await resolveAccountAndProvider(fromAccountId || "1521");
       if (!account) return res.status(404).json({ message: "Account not found. Create account 1521 (Auto Send Wallet) in Chart of Accounts first." });
       if (!provider) return res.status(400).json({ message: `Account ${account.code} has no linked provider. Set providerId on the account.` });
 
@@ -2349,8 +2359,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const usdtAmount = parseFloat(amount) || (numFiatAmount > 0 && rate > 0 ? numFiatAmount / rate / (1 + feeRate / 100) : 0);
       if (!usdtAmount || usdtAmount <= 0) return res.status(400).json({ message: "USDT amount must be greater than zero" });
 
-      const depositFeeUsd = usdtAmount * (feeRate / 100);
-      const networkFeeUsd = parseFloat(String(provider.networkFeeUsd ?? "0"));
+      const rawDepositFeeUsd = usdtAmount * (feeRate / 100);
+      const depositFeeUsd = rawDepositFeeUsd > 0 && rawDepositFeeUsd < MIN_SEND_FEE_USD ? MIN_SEND_FEE_USD : rawDepositFeeUsd;
+      const networkFeeUsd = parseFloat(String(network?.networkFeeUsd ?? provider.networkFeeUsd ?? "0"));
       const totalDebitFiat = numFiatAmount;
 
       // Duplicate prevention: block if same customer+address+amount sent within last 5 minutes

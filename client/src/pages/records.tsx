@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import type { ChartOfAccount, Provider, CustomerWallet, ExchangeRate } from "@shared/schema";
+import type { ChartOfAccount, Provider, CustomerWallet, ExchangeRate, CryptoNetwork } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -454,12 +454,18 @@ function RecordFormPage({
   const { data: customers } = useQuery<Customer[]>({ queryKey: ["/api/customers"] });
   const { data: coaAccounts } = useQuery<ChartOfAccount[]>({ queryKey: ["/api/accounting/accounts"] });
   const { data: providers } = useQuery<Provider[]>({ queryKey: ["/api/accounting/providers"] });
+  const { data: cryptoNetworksList } = useQuery<CryptoNetwork[]>({ queryKey: ["/api/accounting/networks"] });
   const { data: watchedWallets } = useQuery<any[]>({ queryKey: ["/api/accounting/watched-wallets"] });
 
   const providerMap = useMemo<Record<string, Provider>>(() => {
     if (!providers) return {};
     return Object.fromEntries(providers.map(p => [String(p.id), p]));
   }, [providers]);
+
+  const networkMap = useMemo<Record<string, CryptoNetwork>>(() => {
+    if (!cryptoNetworksList) return {};
+    return Object.fromEntries(cryptoNetworksList.map(n => [String(n.id), n]));
+  }, [cryptoNetworksList]);
 
   // Map accountId → active watched wallet (for auto-filling our sending address)
   const watchedWalletByAccountId = useMemo<Record<string, any>>(() => {
@@ -940,26 +946,31 @@ function RecordFormPage({
   }, [watchAmount, appliedRate, accountCurrency]);
 
   // ── Crypto fee breakdown (for crypto records when provider + amount are set) ──
+  const MIN_FEE_USD = 1.0;
   const cryptoFeeInfo = useMemo(() => {
     if (isCash || !watchAmount) return null;
     const amt     = parseFloat(watchAmount);
     if (!amt || isNaN(amt)) return null;
     const provDepRate = linkedProvider ? parseFloat(String(linkedProvider.depositFeeRate  ?? '0')) || 0 : 0;
     const provWdRate  = linkedProvider ? parseFloat(String(linkedProvider.withdrawFeeRate ?? '0')) || 0 : 0;
-    const netFee  = linkedProvider ? parseFloat(String(linkedProvider.networkFeeUsd ?? '0')) || 0 : 0;
-    const network = linkedProvider?.networkCode ?? '';
-    // Per-record override takes priority over provider default
+    const linkedNetwork = linkedProvider?.networkId ? networkMap[linkedProvider.networkId] : null;
+    const netFee  = linkedNetwork
+      ? parseFloat(String(linkedNetwork.networkFeeUsd ?? '0')) || 0
+      : (linkedProvider ? parseFloat(String(linkedProvider.networkFeeUsd ?? '0')) || 0 : 0);
+    const network = linkedNetwork?.code || linkedProvider?.networkCode || '';
     const formFeeRate = parseFloat(watchServiceFeeRate || '0');
     const depRate = formFeeRate > 0 ? formFeeRate : provDepRate;
     const wdRate  = formFeeRate > 0 ? formFeeRate : provWdRate;
     if (isInflow) {
-      const feeUsd  = amt * (wdRate / 100);
-      return { feeRate: wdRate, feeUsd, networkFee: 0, network, netAmount: amt - feeUsd, mode: 'inflow' as const };
+      const rawFeeUsd = amt * (wdRate / 100);
+      const feeUsd = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD ? MIN_FEE_USD : rawFeeUsd;
+      return { feeRate: wdRate, feeUsd, networkFee: 0, network, netAmount: amt - feeUsd, mode: 'inflow' as const, minFeeApplied: rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD };
     } else {
-      const feeUsd  = amt * (depRate / 100);
-      return { feeRate: depRate, feeUsd, networkFee: netFee, network, netAmount: amt + feeUsd + netFee, mode: 'outflow' as const };
+      const rawFeeUsd = amt * (depRate / 100);
+      const feeUsd = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD ? MIN_FEE_USD : rawFeeUsd;
+      return { feeRate: depRate, feeUsd, networkFee: netFee, network, netAmount: amt + feeUsd + netFee, mode: 'outflow' as const, minFeeApplied: rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD };
     }
-  }, [isCash, linkedProvider, watchAmount, isInflow, watchServiceFeeRate]);
+  }, [isCash, linkedProvider, networkMap, watchAmount, isInflow, watchServiceFeeRate]);
 
   const [feeCardDownloading, setFeeCardDownloading] = useState(false);
   const downloadFeeBreakdownCard = async () => {
@@ -990,7 +1001,7 @@ function RecordFormPage({
               <span style="font-weight:700;font-family:monospace;color:${NAVY};font-size:13px;">${amtDisplay} USDT</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e0d9ff;background:#fffbf0;">
-              <span style="color:#b45309;font-size:13px;">${isOut ? `Service fee (${cryptoFeeInfo.feeRate}%)` : `Withdraw fee (${cryptoFeeInfo.feeRate}%)`}</span>
+              <span style="color:#b45309;font-size:13px;">${isOut ? `Service fee (${cryptoFeeInfo.feeRate}%)` : `Withdraw fee (${cryptoFeeInfo.feeRate}%)`}${cryptoFeeInfo.minFeeApplied ? " — min $1" : ""}</span>
               <span style="font-weight:600;font-family:monospace;color:#b45309;font-size:13px;">${isOut ? "+" : "−"}$${cryptoFeeInfo.feeUsd.toFixed(4)}</span>
             </div>
             ${isOut && cryptoFeeInfo.networkFee > 0 ? `
@@ -1557,7 +1568,7 @@ function RecordFormPage({
                         <span className="font-mono font-semibold">{parseFloat(watchAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Service fee ({cryptoFeeInfo.feeRate}%)</span>
+                        <span>Service fee ({cryptoFeeInfo.feeRate}%){cryptoFeeInfo.minFeeApplied ? " — min $1" : ""}</span>
                         <span className="font-mono">+${cryptoFeeInfo.feeUsd.toFixed(4)}</span>
                       </div>
                       {cryptoFeeInfo.networkFee > 0 && (
@@ -1578,7 +1589,7 @@ function RecordFormPage({
                         <span className="font-mono font-semibold">{parseFloat(watchAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Withdraw fee ({cryptoFeeInfo.feeRate}%)</span>
+                        <span>Withdraw fee ({cryptoFeeInfo.feeRate}%){cryptoFeeInfo.minFeeApplied ? " — min $1" : ""}</span>
                         <span className="font-mono">−${cryptoFeeInfo.feeUsd.toFixed(4)}</span>
                       </div>
                       <div className="flex justify-between pt-1 border-t border-purple-200 dark:border-purple-700 font-semibold">
