@@ -199,14 +199,18 @@ export default function Webhooks() {
     supabaseRestUrl: string;
   }>({ queryKey: ["/api/public-config"] });
 
-  // Supabase Direct — POST to REST API with apikey embedded in URL (no auth header needed)
+  // Edge Function approach — single URL per slug, only Content-Type header needed
   // Placeholders per Forward SMS docs: {body} = message text, {sender} = phone number
-  const supabaseUrl = publicConfig
-    ? `${publicConfig.supabaseRestUrl}/sms_raw_inbox?apikey=${publicConfig.supabaseAnonKey}`
-    : "Loading…";
-  const supabaseHeaders = `Content-Type: application/json\nPrefer: return=minimal`;
-  const supabaseBody = (slug: string) =>
-    `{"slug":"${slug}","raw_message":"{body}","sender":"{sender}"}`;
+  const SUPABASE_PROJECT = "rhdcobxxezxwesksnbrt";
+  const edgeFnUrl = (slug: string) =>
+    `https://${SUPABASE_PROJECT}.supabase.co/functions/v1/sms-ingest?slug=${slug}`;
+  const edgeFnHeaders = `Content-Type: application/json`;
+  const edgeFnBody = `{"raw_message":"{body}","sender":"{sender}"}`;
+
+  // Keep for any legacy computed usage
+  const supabaseUrl = edgeFnUrl(selectedConfig?.slug ?? "YOUR_SLUG");
+  const supabaseHeaders = edgeFnHeaders;
+  const supabaseBody = (_slug: string) => edgeFnBody;
 
   // Config CRUD mutations
   const createConfigMutation = useMutation({
@@ -445,7 +449,7 @@ export default function Webhooks() {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            copyToClipboard(supabaseUrl);
+                            copyToClipboard(edgeFnUrl(config.slug));
                             toast({ title: "URL copied — paste into Forward SMS app" });
                           }}
                           data-testid={`button-copy-${config.slug}`}
@@ -495,11 +499,11 @@ export default function Webhooks() {
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <Inbox className="w-4 h-4 text-primary" />
-                      Forward SMS → Supabase Direct
-                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">No server · DB only</Badge>
+                      Forward SMS → Supabase Edge Function
+                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">No server · 1 header only</Badge>
                     </CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">
-                      SMS goes straight into your database — no app server in the path.
+                      SMS goes straight to Supabase — no app server in the path. The slug is in the URL so the body is the same for every endpoint.
                     </p>
                   </div>
                   <Badge variant="outline" className="text-xs font-mono shrink-0">{selectedConfig.slug}</Badge>
@@ -513,7 +517,7 @@ export default function Webhooks() {
                   <span className="text-slate-400">→</span>
                   <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">Forward SMS App</span>
                   <span className="text-slate-400">→</span>
-                  <span className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 px-2 py-1 rounded font-medium text-emerald-800 dark:text-emerald-300">Supabase REST API</span>
+                  <span className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 px-2 py-1 rounded font-medium text-emerald-800 dark:text-emerald-300">Supabase Edge Function</span>
                   <span className="text-slate-400">→</span>
                   <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">sms_raw_inbox</span>
                 </div>
@@ -529,55 +533,56 @@ export default function Webhooks() {
                     <Badge className="w-fit text-[10px] px-2 py-0 font-mono bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0">POST</Badge>
                   </div>
 
-                  {/* URL */}
+                  {/* URL — slug is a query param so same body works for all endpoints */}
                   <div className="grid grid-cols-[90px_1fr] items-start py-2.5 gap-3 text-xs">
                     <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">URL</span>
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 font-mono break-all leading-relaxed text-[11px]" data-testid={`text-supabase-url-${selectedConfig.slug}`}>
-                          {supabaseUrl}
+                          {edgeFnUrl(selectedConfig.slug)}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-8 shrink-0"
                           data-testid={`button-copy-url-${selectedConfig.slug}`}
-                          onClick={() => { copyToClipboard(supabaseUrl); toast({ title: "URL copied" }); }}>
+                          onClick={() => { copyToClipboard(edgeFnUrl(selectedConfig.slug)); toast({ title: "URL copied" }); }}>
                           <Copy className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">apikey</code> is embedded — no Authorization header needed.
+                        The <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">?slug=</code> identifies which account this SMS belongs to. Change only this per endpoint.
                       </p>
                     </div>
                   </div>
 
-                  {/* Headers */}
+                  {/* Headers — only one! */}
                   <div className="grid grid-cols-[90px_1fr] items-start py-2.5 gap-3 text-xs">
-                    <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Headers</span>
+                    <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Header</span>
                     <div className="flex items-center gap-2">
-                      <pre className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 font-mono whitespace-pre leading-relaxed text-[11px]">
-                        {supabaseHeaders}
-                      </pre>
+                      <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 font-mono text-[11px]">
+                        Content-Type: application/json
+                      </code>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0"
-                        onClick={() => { copyToClipboard(supabaseHeaders); toast({ title: "Headers copied" }); }}>
+                        onClick={() => { copyToClipboard("Content-Type: application/json"); toast({ title: "Header copied" }); }}>
                         <Copy className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
 
-                  {/* Body */}
+                  {/* Body — identical for every endpoint, slug is in the URL */}
                   <div className="grid grid-cols-[90px_1fr] items-start py-2.5 gap-3 text-xs">
-                    <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Body (JSON)</span>
+                    <span className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Body</span>
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
                         <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 font-mono break-all leading-relaxed text-[11px]" data-testid={`text-body-${selectedConfig.slug}`}>
-                          {supabaseBody(selectedConfig.slug)}
+                          {edgeFnBody}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-8 shrink-0"
-                          onClick={() => { copyToClipboard(supabaseBody(selectedConfig.slug)); toast({ title: "Body copied" }); }}>
+                          onClick={() => { copyToClipboard(edgeFnBody); toast({ title: "Body copied" }); }}>
                           <Copy className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                       <div className="text-[11px] text-muted-foreground bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded px-2.5 py-1.5">
-                        <code className="font-mono">{"{body}"}</code> = SMS text &nbsp;·&nbsp; <code className="font-mono">{"{sender}"}</code> = phone number — Forward SMS app built-in placeholders
+                        <strong>Same body for every endpoint</strong> — only change the <code className="font-mono">?slug=</code> in the URL above.
+                        &nbsp;<code className="font-mono">{"{body}"}</code> = SMS text &nbsp;·&nbsp; <code className="font-mono">{"{sender}"}</code> = phone number
                       </div>
                     </div>
                   </div>
@@ -590,12 +595,12 @@ export default function Webhooks() {
                 <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-foreground">RLS secured:</strong> The anon key above can only INSERT into{" "}
-                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sms_raw_inbox</code> —
-                    fields <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code>,{" "}
+                    <strong className="text-foreground">Secure by design:</strong> The Edge Function runs server-side with its own credentials — no keys are exposed to callers.
+                    It validates the <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code> exists and is active before writing, and only writes{" "}
+                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">slug</code>,{" "}
                     <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">raw_message</code>,{" "}
-                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code> only.
-                    No reads, no deletes, no access to any other table.
+                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sender</code> to{" "}
+                    <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">sms_raw_inbox</code>.
                   </span>
                 </div>
 
@@ -748,10 +753,10 @@ export default function Webhooks() {
                   <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
                     <p className="text-xs font-semibold flex items-center gap-2 text-foreground">
                       <Inbox className="w-3.5 h-3.5 text-primary" />
-                      Forward SMS → Supabase Direct
+                      Forward SMS → Supabase Edge Function
                     </p>
                     <div className="flex items-center gap-2">
-                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">No server · DB only</Badge>
+                      <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">No server · 1 header only</Badge>
                       <Badge variant="outline" className="text-xs font-mono">{selectedConfig.slug}</Badge>
                     </div>
                   </div>
@@ -764,23 +769,23 @@ export default function Webhooks() {
                       <span className="font-semibold text-muted-foreground pt-2">URL</span>
                       <div className="flex items-center gap-2">
                         <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed text-[11px]" data-testid="text-test-url">
-                          {supabaseUrl}
+                          {edgeFnUrl(selectedConfig.slug)}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
-                          onClick={() => { copyToClipboard(supabaseUrl); toast({ title: "URL copied" }); }}
+                          onClick={() => { copyToClipboard(edgeFnUrl(selectedConfig.slug)); toast({ title: "URL copied" }); }}
                           data-testid="button-copy-fwd-url">
                           <Copy className="w-3 h-3" />
                         </Button>
                       </div>
                     </div>
                     <div className="grid grid-cols-[80px_1fr] items-start px-4 py-2.5 gap-3 text-xs">
-                      <span className="font-semibold text-muted-foreground pt-1.5">Headers</span>
+                      <span className="font-semibold text-muted-foreground pt-1.5">Header</span>
                       <div className="flex items-center gap-2">
-                        <pre className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono whitespace-pre text-[11px]">
-                          {supabaseHeaders}
-                        </pre>
+                        <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono text-[11px]">
+                          Content-Type: application/json
+                        </code>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
-                          onClick={() => { copyToClipboard(supabaseHeaders); toast({ title: "Headers copied" }); }}>
+                          onClick={() => { copyToClipboard("Content-Type: application/json"); toast({ title: "Header copied" }); }}>
                           <Copy className="w-3 h-3" />
                         </Button>
                       </div>
@@ -789,16 +794,17 @@ export default function Webhooks() {
                       <span className="font-semibold text-muted-foreground pt-2">Body</span>
                       <div className="flex items-center gap-2">
                         <code className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2.5 py-1.5 font-mono break-all leading-relaxed text-[11px]">
-                          {supabaseBody(selectedConfig.slug)}
+                          {edgeFnBody}
                         </code>
                         <Button type="button" variant="outline" size="sm" className="h-7 shrink-0"
-                          onClick={() => { copyToClipboard(supabaseBody(selectedConfig.slug)); toast({ title: "Body copied" }); }}>
+                          onClick={() => { copyToClipboard(edgeFnBody); toast({ title: "Body copied" }); }}>
                           <Copy className="w-3 h-3" />
                         </Button>
                       </div>
                     </div>
                     <div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50/60 dark:bg-amber-900/20">
-                      <code className="font-mono">{"{body}"}</code> = SMS text &nbsp;·&nbsp; <code className="font-mono">{"{sender}"}</code> = phone number — Forward SMS app built-in placeholders
+                      <strong>Same body for all endpoints</strong> — only change <code className="font-mono">?slug=</code> in the URL.&nbsp;
+                      <code className="font-mono">{"{body}"}</code> = SMS text &nbsp;·&nbsp; <code className="font-mono">{"{sender}"}</code> = phone number
                     </div>
                   </div>
                 </div>
