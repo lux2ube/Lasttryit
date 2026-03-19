@@ -2340,7 +2340,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const providerDepositFee = parseFloat(String(provider.depositFeeRate ?? "0"));
       const feeRate = overrideFeeRate !== undefined && overrideFeeRate !== "" ? parseFloat(overrideFeeRate) : providerDepositFee;
 
-      const usdtAmount = parseFloat(amount) || (numFiatAmount > 0 && rate > 0 ? numFiatAmount / rate / (1 + feeRate / 100) : 0);
+      const usdtAmount = parseFloat(amount) || (() => {
+        if (numFiatAmount <= 0 || rate <= 0) return 0;
+        const usdtIfPct = numFiatAmount / rate / (1 + feeRate / 100);
+        const feeIfPct  = usdtIfPct * (feeRate / 100);
+        if (feeRate > 0 && feeIfPct < MIN_SEND_FEE_USD && numFiatAmount > MIN_SEND_FEE_USD) {
+          return Math.max(0, (numFiatAmount - MIN_SEND_FEE_USD) / rate);
+        }
+        return usdtIfPct;
+      })();
       if (!usdtAmount || usdtAmount <= 0) return res.status(400).json({ message: "USDT amount must be greater than zero" });
 
       const rawDepositFeeUsd = usdtAmount * (feeRate / 100);
@@ -2401,7 +2409,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const providerDepositFee = parseFloat(String(provider.depositFeeRate ?? "0"));
       const feeRate = overrideFeeRate !== undefined && overrideFeeRate !== "" ? parseFloat(overrideFeeRate) : providerDepositFee;
 
-      const usdtAmount = parseFloat(amount) || (numFiatAmount > 0 && rate > 0 ? numFiatAmount / rate / (1 + feeRate / 100) : 0);
+      const usdtAmount = parseFloat(amount) || (() => {
+        if (numFiatAmount <= 0 || rate <= 0) return 0;
+        const usdtIfPct = numFiatAmount / rate / (1 + feeRate / 100);
+        const feeIfPct  = usdtIfPct * (feeRate / 100);
+        if (feeRate > 0 && feeIfPct < MIN_SEND_FEE_USD && numFiatAmount > MIN_SEND_FEE_USD) {
+          return Math.max(0, (numFiatAmount - MIN_SEND_FEE_USD) / rate);
+        }
+        return usdtIfPct;
+      })();
       if (!usdtAmount || usdtAmount <= 0) return res.status(400).json({ message: "USDT amount must be greater than zero" });
 
       const rawDepositFeeUsd = usdtAmount * (feeRate / 100);

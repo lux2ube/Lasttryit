@@ -187,45 +187,90 @@ getLogoDataUrl();
 const GOLD      = "#F5A623";
 const GOLD_DARK = "#C4850C";
 const GOLD_BG   = "#FEF9F0";
-const GOLD_RING = "#FDF0D5";
 const DARK      = "#1A1A2E";
 const TEXT      = "#2D2D3F";
-const TEXT_SEC  = "#71717A";
-const BORDER    = "#F0EDE8";
+const TEXT_SEC  = "#6B7280";
+const SEP       = "#E8E4DF";
 const WHITE     = "#FFFFFF";
-const ROW_ALT   = "#FAFAF8";
 const GREEN     = "#16A34A";
-
+const MONO_FONT = "'Courier New', 'Lucida Console', monospace";
 const AR_FONT   = "'Cairo', Tahoma, Arial, sans-serif";
 
-// ── Row component ─────────────────────────────────────────────────────────────
+// ── Section divider ───────────────────────────────────────────────────────────
+const Divider = () => (
+  <div style={{ height: "1px", background: SEP, margin: "0 24px" }} />
+);
 
-const Row = ({ label, value, mono, accent, bold, alt, labelAr }: {
-  label: string; value?: string | React.ReactNode;
-  mono?: boolean; accent?: string; bold?: boolean; alt?: boolean;
-  labelAr?: string;
+// ── Single field row (label stacked above value) ───────────────────────────────
+const Field = ({ label, labelAr, value, mono, accent, large, hash }: {
+  label: string; labelAr?: string; value?: string | React.ReactNode;
+  mono?: boolean; accent?: string; large?: boolean; hash?: boolean;
 }) => {
   if (!value && value !== 0) return null;
   return (
-    <div style={{
-      display: "flex", justifyContent: "space-between", alignItems: "center",
-      padding: "10px 24px",
-      borderBottom: `1px solid ${BORDER}`,
-      background: alt ? ROW_ALT : WHITE,
-    }}>
-      <span style={{ fontSize: "12.5px", fontWeight: 500, color: TEXT_SEC, flexShrink: 0 }}>
+    <div style={{ padding: "9px 24px" }}>
+      <div style={{
+        fontSize: "10px", fontWeight: 600, color: TEXT_SEC,
+        textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "3px",
+        display: "flex", alignItems: "center", gap: "6px",
+      }}>
         {label}
-        {labelAr && <span style={{ display: "block", fontSize: "10px", color: "#A1A1AA", fontWeight: 400, marginTop: "1px", direction: "rtl", unicodeBidi: "isolate", textAlign: "right", fontFamily: AR_FONT }}>{labelAr}</span>}
-      </span>
-      <span style={{
-        fontSize: "13px", fontWeight: bold ? 700 : 500,
-        fontFamily: mono ? "'SF Mono', 'Fira Code', 'Courier New', monospace" : "inherit",
+        {labelAr && (
+          <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "#9CA3AF" }}>
+            · {labelAr}
+          </span>
+        )}
+      </div>
+      <div style={{
+        fontSize: large ? "15px" : "13px",
+        fontWeight: large ? 700 : 600,
+        fontFamily: mono ? MONO_FONT : "inherit",
         color: accent ?? TEXT,
-        wordBreak: "break-all", textAlign: "right", direction: "ltr", maxWidth: "58%",
-      }}>{value}</span>
+        wordBreak: hash ? "break-all" : "normal",
+        overflowWrap: hash ? "break-word" : "normal",
+        lineHeight: 1.45,
+      }}>
+        {value}
+      </div>
     </div>
   );
 };
+
+// ── Two-column row (for compact pairs like amount + fee) ───────────────────────
+const Row2 = ({ left, right }: {
+  left: { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean };
+  right: { label: string; labelAr?: string; value?: string | React.ReactNode; accent?: string; mono?: boolean };
+}) => {
+  if (!left.value && !right.value) return null;
+  return (
+    <div style={{ display: "flex", padding: "9px 24px", gap: "16px" }}>
+      {[left, right].map((col, i) => col.value ? (
+        <div key={i} style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "10px", fontWeight: 600, color: TEXT_SEC, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "3px", display: "flex", gap: "5px", alignItems: "center" }}>
+            {col.label}
+            {col.labelAr && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "#9CA3AF" }}>· {col.labelAr}</span>}
+          </div>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: col.accent ?? TEXT, fontFamily: col.mono ? MONO_FONT : "inherit" }}>
+            {col.value}
+          </div>
+        </div>
+      ) : <div key={i} style={{ flex: 1 }} />)}
+    </div>
+  );
+};
+
+// ── Section header band ────────────────────────────────────────────────────────
+const Band = ({ en, ar }: { en: string; ar?: string }) => (
+  <div style={{
+    background: GOLD_BG, padding: "5px 24px",
+    fontSize: "9.5px", fontWeight: 700, letterSpacing: "1px",
+    textTransform: "uppercase", color: GOLD_DARK,
+    display: "flex", alignItems: "center", gap: "6px",
+  }}>
+    {en}
+    {ar && <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>· {ar}</span>}
+  </div>
+);
 
 // ── Invoice Template (exported for use in dialog) ─────────────────────────────
 
@@ -262,136 +307,184 @@ export function InvoiceTemplate({
   const safeNotes = clientNotes(record.notes);
   const logo = logoSrc ?? "/coincash-logo.png";
 
+  const amountStr = `${fmt(amount, isCrypto ? 6 : 2)} ${record.currency}`;
+  const hasFees = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
+
   return (
     <div style={{
-      width: "420px",
+      width: "480px",
       background: WHITE,
-      fontFamily: "'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif",
+      fontFamily: "'Segoe UI', 'Inter', system-ui, sans-serif",
       direction: "ltr",
       color: TEXT,
       fontSize: "13px",
       lineHeight: "1.5",
-      borderRadius: "20px",
+      borderRadius: "16px",
       overflow: "hidden",
-      boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)",
-      border: `1px solid ${BORDER}`,
     }}>
 
       {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-      <div style={{ background: WHITE, padding: "24px 24px 16px", textAlign: "center", borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+      <div style={{ background: DARK, padding: "22px 28px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
           <img
             src={logo}
             alt="Coin Cash"
             crossOrigin="anonymous"
-            style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "10px" }}
+            style={{ width: "44px", height: "44px", objectFit: "contain", borderRadius: "10px", background: WHITE, padding: "3px" }}
           />
-          <div style={{ textAlign: "left" }}>
-            <div style={{ color: DARK, fontSize: "18px", fontWeight: 800, lineHeight: 1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
-            <div style={{ color: GOLD_DARK, fontSize: "10px", fontWeight: 500, marginTop: "3px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
+          <div>
+            <div style={{ color: WHITE, fontSize: "20px", fontWeight: 800, lineHeight: 1.1, direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>كوين كاش</div>
+            <div style={{ color: GOLD, fontSize: "10.5px", fontWeight: 500, marginTop: "2px", letterSpacing: "0.3px" }}>Coin Cash — Money Exchange &amp; Crypto</div>
           </div>
         </div>
-        <div style={{ color: TEXT, fontSize: "15px", fontWeight: 700, letterSpacing: "0.2px" }}>Transaction Details</div>
-        <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "2px", direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>تفاصيل العملية</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "9.5px", fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "2px" }}>Transaction Receipt</div>
+            <div style={{ color: WHITE, fontSize: "11px", fontFamily: MONO_FONT, fontWeight: 600 }}>{record.recordNumber}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "9.5px", fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase", marginBottom: "2px" }}>Date</div>
+            <div style={{ color: WHITE, fontSize: "11px" }}>{confirmedAt(record)}</div>
+          </div>
+        </div>
       </div>
 
-      {/* ══ HERO TOTAL ══════════════════════════════════════════════════════ */}
-      <div style={{ background: GOLD_BG, padding: "20px 24px", textAlign: "center", borderBottom: `2px solid ${GOLD_RING}` }}>
-        <div style={{
-          display: "inline-block", background: GOLD, color: WHITE,
-          fontSize: "10px", fontWeight: 700, padding: "3px 14px", borderRadius: "20px",
-          letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "10px",
-        }}>
-          {isInflow
-            ? <>Total Credit — <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>لكم</span></>
-            : <>Total Debit — <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>عليكم</span></>}
-        </div>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "8px" }}>
-          <span style={{
-            color: DARK, fontSize: "36px", fontWeight: 800,
-            fontFamily: "'SF Mono', 'Fira Code', 'Courier New', monospace",
-            lineHeight: 1, letterSpacing: "-1px",
+      {/* ══ TOTAL BAND ══════════════════════════════════════════════════════ */}
+      <div style={{ background: GOLD_BG, padding: "18px 28px", borderBottom: `2px solid ${GOLD}22` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 700, color: GOLD_DARK, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>
+              {isInflow
+                ? <span>Total Credit <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0 }}>· لكم</span></span>
+                : <span>Total Debit <span style={{ fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", textTransform: "none", letterSpacing: 0 }}>· عليكم</span></span>}
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+              <span style={{ color: DARK, fontSize: "38px", fontWeight: 800, lineHeight: 1, letterSpacing: "-1.5px" }}>
+                {totalClientAmount !== null
+                  ? fmt(totalClientAmount, 2)
+                  : (principalUsd !== null ? fmt(principalUsd, 2) : fmt(amount, isCrypto ? 4 : 2))}
+              </span>
+              <span style={{ color: GOLD_DARK, fontSize: "17px", fontWeight: 700 }}>
+                {principalUsd !== null || totalClientAmount !== null ? "USD" : record.currency}
+              </span>
+            </div>
+            {totalClientAmount !== null && principalUsd !== null && Math.abs(totalClientAmount - principalUsd) > 0.001 && (
+              <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "4px" }}>
+                {fmt(principalUsd, 2)} USD {isInflow ? "−" : "+"} ${fmt(Math.abs(totalClientAmount - principalUsd), 2)} fees
+              </div>
+            )}
+          </div>
+          <div style={{
+            background: isInflow ? "#16A34A22" : "#EF444422",
+            border: `1.5px solid ${isInflow ? "#16A34A44" : "#EF444444"}`,
+            borderRadius: "10px", padding: "6px 14px", textAlign: "center",
           }}>
-            {totalClientAmount !== null
-              ? fmt(totalClientAmount, 2)
-              : (principalUsd !== null ? fmt(principalUsd, 2) : fmt(amount, isCrypto ? 4 : 2))}
-          </span>
-          <span style={{ color: GOLD_DARK, fontSize: "16px", fontWeight: 700 }}>
-            {principalUsd !== null || totalClientAmount !== null ? "USD" : record.currency}
-          </span>
-        </div>
-        {totalClientAmount !== null && principalUsd !== null && totalClientAmount !== principalUsd && (
-          <div style={{ color: TEXT_SEC, fontSize: "10.5px", marginTop: "6px" }}>
-            Principal ${fmt(principalUsd, 2)} {isInflow ? "−" : "+"} fees ${fmt(Math.abs(totalClientAmount - principalUsd), 2)}
+            <div style={{ fontSize: "18px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
+            <div style={{ fontSize: "9px", fontWeight: 700, color: isInflow ? GREEN : "#DC2626", marginTop: "3px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+              {isInflow ? "Received" : "Sent"}
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* ══ DETAIL ROWS ═════════════════════════════════════════════════════ */}
-      <Row label="Transaction" labelAr="نوع العملية" value={typeLabel(record.type, record.direction)} bold />
-      <Row label="Transaction Date" labelAr="التاريخ" value={confirmedAt(record)} alt />
-      <Row label="Record Number" labelAr="رقم العملية" value={record.recordNumber} mono bold />
-      <Row label="Amount" labelAr="المبلغ" value={`${fmt(amount, isCrypto ? 6 : 2)}  ${record.currency}`} alt bold />
-      {principalUsd !== null && record.currency !== "USD" && (
-        <Row label="USD Equivalent" labelAr="المعادل بالدولار" value={`$${fmt(principalUsd, 2)}`} accent={GREEN} bold />
+      {/* ══ TRANSACTION DETAILS ═════════════════════════════════════════════ */}
+      <Band en="Transaction Details" ar="تفاصيل العملية" />
+
+      <Field label="Type" labelAr="نوع العملية" value={typeLabel(record.type, record.direction)} large />
+      <Divider />
+      <Row2
+        left={{ label: "Amount", labelAr: "المبلغ", value: amountStr, mono: true, accent: TEXT }}
+        right={principalUsd !== null && record.currency !== "USD"
+          ? { label: "USD Equivalent", labelAr: "المعادل", value: `$${fmt(principalUsd, 2)}`, accent: GREEN }
+          : { label: "", value: undefined }}
+      />
+
+      {hasFees && (
+        <>
+          <Divider />
+          <Row2
+            left={feeAmountUsd !== null && feeAmountUsd > 0
+              ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
+              : { label: "", value: undefined }}
+            right={netFeeUsd > 0
+              ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
+              : { label: "", value: undefined }}
+          />
+        </>
       )}
-      {feeAmountUsd !== null && feeAmountUsd > 0 && (
-        <Row label="Service Fee" labelAr="رسوم الخدمة" value={`$${fmt(feeAmountUsd, 2)}`} alt accent={GOLD_DARK} />
-      )}
-      {netFeeUsd > 0 && (
-        <Row label="Network Fee" labelAr="رسوم الشبكة" value={`$${fmt(netFeeUsd, 2)}`} accent={GOLD_DARK} />
-      )}
+
       {record.assetOrProviderName && (
-        <Row label="Provider" labelAr="المزود" value={record.assetOrProviderName} alt />
-      )}
-      {record.clientSenderName && (
-        <Row label="Sender" labelAr="المرسل" value={record.clientSenderName} mono={isCrypto} />
-      )}
-      {record.clientRecipientName && (
-        <Row label="Recipient" labelAr="المستلم" value={record.clientRecipientName} mono={isCrypto} alt />
-      )}
-      {record.txidOrReferenceNumber && (
-        <Row label="Reference" labelAr="رقم المرجع" value={record.txidOrReferenceNumber} mono accent={GOLD_DARK} />
-      )}
-      {record.networkOrId && (
-        <Row label="Address / ID" labelAr="العنوان/المعرف" value={record.networkOrId} mono alt />
-      )}
-      {isCrypto && record.blockNumberOrBatchId && (
-        <Row label="Block" value={record.blockNumberOrBatchId} mono />
+        <>
+          <Divider />
+          <Field label="Provider" labelAr="المزود" value={record.assetOrProviderName} />
+        </>
       )}
 
-      {/* ── Client Section ────────────────────────────────────────────────── */}
-      <div style={{
-        background: GOLD_BG, padding: "6px 24px",
-        borderTop: `1px solid ${BORDER}`, borderBottom: `1px solid ${BORDER}`,
-        fontSize: "10px", fontWeight: 700, letterSpacing: "1.2px",
-        textTransform: "uppercase", color: GOLD_DARK,
-      }}>
-        Client Info · <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>بيانات العميل</span>
-      </div>
-      <Row label="Name" value={clientName} bold />
+      {(record.clientSenderName || record.clientRecipientName) && (
+        <>
+          <Divider />
+          <Row2
+            left={record.clientSenderName ? { label: "Sender", labelAr: "المرسل", value: record.clientSenderName } : { label: "", value: undefined }}
+            right={record.clientRecipientName ? { label: "Recipient", labelAr: "المستلم", value: record.clientRecipientName } : { label: "", value: undefined }}
+          />
+        </>
+      )}
+
+      {record.txidOrReferenceNumber && (
+        <>
+          <Divider />
+          <Field label="Reference / TXID" labelAr="رقم المرجع" value={record.txidOrReferenceNumber} mono hash accent={GOLD_DARK} />
+        </>
+      )}
+
+      {record.networkOrId && (
+        <>
+          <Divider />
+          <Field label="Address / ID" labelAr="العنوان/المعرف" value={record.networkOrId} mono hash />
+        </>
+      )}
+
+      {isCrypto && record.blockNumberOrBatchId && (
+        <>
+          <Divider />
+          <Field label="Block" value={record.blockNumberOrBatchId} mono />
+        </>
+      )}
+
+      {/* ══ CLIENT INFO ═════════════════════════════════════════════════════ */}
+      <Band en="Client Info" ar="بيانات العميل" />
+
+      <Field label="Name" labelAr="الاسم" value={clientName} large />
+      {customerId !== "—" && (
+        <>
+          <Divider />
+          <Row2
+            left={{ label: "Customer ID", value: customerId, mono: true }}
+            right={clientPhone !== "—" ? { label: "Phone", value: clientPhone } : { label: "", value: undefined }}
+          />
+        </>
+      )}
 
       {/* ── Notes ─────────────────────────────────────────────────────────── */}
       {safeNotes && (
-        <div style={{
-          padding: "9px 24px", background: GOLD_BG,
-          borderTop: `1px solid ${GOLD_RING}`, borderBottom: `1px solid ${BORDER}`,
-        }}>
-          <span style={{ color: GOLD_DARK, fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Note: </span>
-          <span style={{ color: TEXT, fontSize: "12px" }}>{safeNotes}</span>
-        </div>
+        <>
+          <Band en="Note" />
+          <div style={{ padding: "9px 24px 12px", color: TEXT, fontSize: "12px", lineHeight: 1.5 }}>
+            {safeNotes}
+          </div>
+        </>
       )}
 
       {/* ══ FOOTER ══════════════════════════════════════════════════════════ */}
-      <div style={{ background: DARK, padding: "16px 24px", textAlign: "center" }}>
+      <div style={{ height: "3px", background: `linear-gradient(90deg, ${GOLD}, ${GOLD_DARK})` }} />
+      <div style={{ background: DARK, padding: "14px 28px", display: "flex", justifyContent: "center", alignItems: "center" }}>
         <div style={{
-          color: GOLD, fontSize: "14px", fontWeight: 700,
+          color: GOLD, fontSize: "15px", fontWeight: 700,
           fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate",
         }}>
-          شكرا لاختياركم كوين كاش
+          شكراً لاختياركم كوين كاش
         </div>
       </div>
-      <div style={{ height: "4px", background: `linear-gradient(90deg, ${GOLD}, ${GOLD_DARK})` }} />
     </div>
   );
 }

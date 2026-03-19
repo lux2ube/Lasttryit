@@ -489,6 +489,7 @@ export default function CustomerGroups() {
       )}
 
       <GroupDialog
+        key={editItem?.id ?? 'new'}
         open={dialogOpen} onClose={handleClose} edit={editItem}
         currencies={currencies as Currency[]} providers={providers as Provider[]}
       />

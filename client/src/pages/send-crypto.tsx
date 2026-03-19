@@ -142,12 +142,20 @@ export default function SendCrypto() {
   const numRate = parseFloat(buyRate) || 0;
   const feeRate = parseFloat(depositFeeRate) || 0;
 
-  const usdtFromFiat = numRate > 0 ? numFiat / numRate / (1 + feeRate / 100) : 0;
+  const usdtFromFiat = (() => {
+    if (numRate <= 0 || numFiat <= 0) return 0;
+    const usdtIfPct = numFiat / numRate / (1 + feeRate / 100);
+    const feeIfPct  = usdtIfPct * (feeRate / 100);
+    if (feeRate > 0 && feeIfPct < MIN_FEE_USD && numFiat > MIN_FEE_USD) {
+      return Math.max(0, (numFiat - MIN_FEE_USD) / numRate);
+    }
+    return usdtIfPct;
+  })();
   const usdtToSend = amountMode === "usdt" ? (parseFloat(manualUsdt) || 0) : usdtFromFiat;
   const rawFeeUsd = usdtToSend * (feeRate / 100);
   const feeUsd = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD ? MIN_FEE_USD : rawFeeUsd;
   const minFeeApplied = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD;
-  const totalDebit = usdtToSend + feeUsd + networkFee;
+  const totalDebit = amountMode === "fiat" ? numFiat : (usdtToSend * numRate + feeUsd + networkFee * numRate);
 
   const { data: customers = [] } = useQuery<Customer[]>({ queryKey: ["/api/customers"] });
   const { data: custWallets = [] } = useQuery<CustomerWallet[]>({
