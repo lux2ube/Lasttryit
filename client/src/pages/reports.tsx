@@ -411,7 +411,7 @@ export default function Reports() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{c.fullName}</p>
-                      <p className="text-xs text-muted-foreground">{c.customerId} · {c.totalTransactions} tx</p>
+                      <p className="text-xs text-muted-foreground">{c.customerId} · {c.totalTransactions} records</p>
                     </div>
                     <span className="text-sm font-semibold text-primary shrink-0">
                       {fmtUsd(parseFloat(c.totalVolumeUsd || "0"))}

@@ -22,7 +22,7 @@ import {
   Plus, Search, Users, ShieldAlert, Edit2, Trash2,
   Phone, Mail, Globe, CheckCircle, Clock, Ban, Filter,
   ShieldCheck, UserX, Wallet, Star, Loader2, History,
-  TrendingUp, TrendingDown, ArrowRightLeft, FileText, Upload, X, Tag,
+  TrendingUp, TrendingDown, FileText, Upload, X, Tag,
   Eye, ScanLine, Minus,
 } from "lucide-react";
 import { InfoTip } from "@/components/ui/info-tip";
@@ -1823,16 +1823,6 @@ interface HistoryRecord {
   processingStage: string; amount: string; currency: string; usdEquivalent?: string;
   accountName?: string; assetOrProviderName?: string; notes?: string; createdAt: string;
 }
-interface HistoryTransaction {
-  id: string; transactionNumber: string; type: "deposit"|"withdraw"|"transfer";
-  totalInUsd: string; totalOutUsd: string; serviceFeeAmount: string; netDifference: string;
-  netDifferenceType?: string; notes?: string; createdAt: string;
-}
-const txTypeColors: Record<string, string> = {
-  deposit:  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  withdraw: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  transfer: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-};
 const stageColors: Record<string, string> = {
   recorded:  "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   confirmed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
@@ -1910,15 +1900,6 @@ function DocPreviewDialog({ doc, onClose }: { doc: DocItem; onClose: () => void 
 }
 
 function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onClose: () => void }) {
-  const { data: transactions, isLoading: txLoading } = useQuery<HistoryTransaction[]>({
-    queryKey: ["/api/transactions", customer.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/transactions?customerId=${customer.id}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-  });
-
   const { data: records, isLoading: recLoading } = useQuery<HistoryRecord[]>({
     queryKey: ["/api/records", customer.id],
     queryFn: async () => {
@@ -1927,6 +1908,8 @@ function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onCl
       return res.json();
     },
   });
+
+  const totalVolume = records?.reduce((s, r) => s + (parseFloat(r.usdEquivalent ?? "0") || 0), 0) ?? 0;
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -1941,78 +1924,42 @@ function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onCl
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-3 text-center text-sm">
-          <div className="rounded-lg border border-border p-3">
-            <p className="text-xs text-muted-foreground mb-1">Transactions</p>
-            <p className="font-bold text-lg">{customer.totalTransactions}</p>
-          </div>
-          <div className="rounded-lg border border-border p-3">
-            <p className="text-xs text-muted-foreground mb-1">Total Volume</p>
-            <p className="font-bold text-lg text-primary">${parseFloat(customer.totalVolumeUsd||"0").toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-3 text-center text-sm">
           <div className="rounded-lg border border-border p-3">
             <p className="text-xs text-muted-foreground mb-1">Records</p>
             <p className="font-bold text-lg">{records?.length ?? "—"}</p>
           </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground mb-1">Total Volume</p>
+            <p className="font-bold text-lg text-primary">${totalVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          </div>
         </div>
 
-        <Tabs defaultValue="transactions">
-          <TabsList>
-            <TabsTrigger value="transactions" className="flex items-center gap-1.5">
-              <ArrowRightLeft className="w-3.5 h-3.5" />Transactions ({transactions?.length ?? 0})
-            </TabsTrigger>
-            <TabsTrigger value="records" className="flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5" />Records ({records?.length ?? 0})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="transactions" className="mt-4 space-y-2">
-            {txLoading ? <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
-            : !transactions?.length ? <div className="flex flex-col items-center py-10 text-muted-foreground"><ArrowRightLeft className="w-8 h-8 mb-2 opacity-30" /><p className="text-sm">No transactions yet</p></div>
-            : transactions.map(tx => {
-              const netDiff = parseFloat(tx.netDifference || "0");
-              return (
-                <div key={tx.id} className="p-3 rounded-lg border border-border text-sm" data-testid={`history-tx-${tx.id}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-mono text-xs text-muted-foreground">{tx.transactionNumber}</span>
-                    <Badge className={`text-xs ${txTypeColors[tx.type] ?? ""}`}>{tx.type}</Badge>
-                    <span className="text-xs text-muted-foreground ml-auto">{format(new Date(tx.createdAt), "MMM d, yyyy")}</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-xs">
-                    <div><p className="text-muted-foreground">Inflow</p><p className="font-semibold text-emerald-600">+${parseFloat(tx.totalInUsd||"0").toFixed(2)}</p></div>
-                    <div><p className="text-muted-foreground">Outflow</p><p className="font-semibold text-red-500">-${parseFloat(tx.totalOutUsd||"0").toFixed(2)}</p></div>
-                    <div><p className="text-muted-foreground">Fee</p><p className="font-semibold">${parseFloat(tx.serviceFeeAmount||"0").toFixed(2)}</p></div>
-                    <div><p className="text-muted-foreground">Net</p><p className={`font-bold ${netDiff >= 0 ? "text-emerald-600" : "text-red-500"}`}>{netDiff >= 0 ? "+" : ""}${Math.abs(netDiff).toFixed(2)}</p></div>
-                  </div>
-                  {tx.notes && <p className="text-xs text-muted-foreground/70 mt-1.5">{tx.notes}</p>}
+        <div className="mt-2 space-y-2">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5" />Records ({records?.length ?? 0})
+          </p>
+          {recLoading ? <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+          : !records?.length ? <div className="flex flex-col items-center py-10 text-muted-foreground"><FileText className="w-8 h-8 mb-2 opacity-30" /><p className="text-sm">No records yet</p></div>
+          : records.map(r => {
+            const key = `${r.type}-${r.direction}`;
+            return (
+              <div key={r.id} className="p-3 rounded-lg border border-border text-sm" data-testid={`history-rec-${r.id}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs text-muted-foreground">{r.recordNumber}</span>
+                  <Badge className={`text-xs ${recTypeColors[key] ?? ""}`}>{r.type} {r.direction}</Badge>
+                  <Badge className={`text-xs ${stageColors[r.processingStage] ?? ""}`}>{r.processingStage.replace("_"," ")}</Badge>
+                  <span className="text-xs text-muted-foreground ml-auto">{format(new Date(r.createdAt), "MMM d, yyyy")}</span>
                 </div>
-              );
-            })}
-          </TabsContent>
-
-          <TabsContent value="records" className="mt-4 space-y-2">
-            {recLoading ? <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
-            : !records?.length ? <div className="flex flex-col items-center py-10 text-muted-foreground"><FileText className="w-8 h-8 mb-2 opacity-30" /><p className="text-sm">No records yet</p></div>
-            : records.map(r => {
-              const key = `${r.type}-${r.direction}`;
-              return (
-                <div key={r.id} className="p-3 rounded-lg border border-border text-sm" data-testid={`history-rec-${r.id}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-mono text-xs text-muted-foreground">{r.recordNumber}</span>
-                    <Badge className={`text-xs ${recTypeColors[key] ?? ""}`}>{r.type} {r.direction}</Badge>
-                    <Badge className={`text-xs ${stageColors[r.processingStage] ?? ""}`}>{r.processingStage.replace("_"," ")}</Badge>
-                    <span className="text-xs text-muted-foreground ml-auto">{format(new Date(r.createdAt), "MMM d, yyyy")}</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className="font-bold">{parseFloat(r.amount).toLocaleString()} {r.currency}</span>
-                    {r.usdEquivalent && <span className="text-muted-foreground">≈ ${parseFloat(r.usdEquivalent).toFixed(2)}</span>}
-                    {(r.accountName || r.assetOrProviderName) && <span className="text-muted-foreground">{r.accountName ?? r.assetOrProviderName}</span>}
-                  </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="font-bold">{parseFloat(r.amount).toLocaleString()} {r.currency}</span>
+                  {r.usdEquivalent && <span className="text-muted-foreground">≈ ${parseFloat(r.usdEquivalent).toFixed(2)}</span>}
+                  {(r.accountName || r.assetOrProviderName) && <span className="text-muted-foreground">{r.accountName ?? r.assetOrProviderName}</span>}
                 </div>
-              );
-            })}
-          </TabsContent>
-        </Tabs>
+              </div>
+            );
+          })}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Close</Button>
@@ -2230,7 +2177,7 @@ export default function Customers() {
                     </div>
                   </div>
                   <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{customer.totalTransactions} transactions</span>
+                    <span>{customer.totalTransactions} records</span>
                     <span>Vol: ${parseFloat(customer.totalVolumeUsd || "0").toLocaleString()}</span>
                     <span className="ml-auto">Since {format(new Date(customer.createdAt), "MMM yyyy")}</span>
                   </div>
