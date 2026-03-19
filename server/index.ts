@@ -20,13 +20,14 @@ declare module "express-session" {
 
 app.use(
   express.json({
+    limit: "20mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "20mb" }));
 app.use("/api/webhooks", express.text({ type: "*/*" }));
 
 export function log(message: string, source = "express") {

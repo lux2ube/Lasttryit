@@ -2029,8 +2029,16 @@ export default function Customers() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [verificationFilter, setVerificationFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
-  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
+  const [formMode, setFormMode] = useState<"create" | "edit" | null>(() => {
+    try {
+      const saved = sessionStorage.getItem("cust_formMode");
+      return saved === "create" || saved === "edit" ? saved : null;
+    } catch { return null; }
+  });
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [pendingEditId, setPendingEditId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem("cust_editId"); } catch { return null; }
+  });
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2050,6 +2058,27 @@ export default function Customers() {
     },
   });
 
+  useEffect(() => {
+    try {
+      if (formMode) sessionStorage.setItem("cust_formMode", formMode);
+      else sessionStorage.removeItem("cust_formMode");
+    } catch {}
+  }, [formMode]);
+
+  useEffect(() => {
+    if (pendingEditId && customerList) {
+      const found = customerList.find(c => c.id === pendingEditId);
+      if (found) {
+        setEditCustomer(found);
+        setPendingEditId(null);
+      } else {
+        setPendingEditId(null);
+        setFormMode(null);
+        try { sessionStorage.removeItem("cust_editId"); sessionStorage.removeItem("cust_formMode"); } catch {}
+      }
+    }
+  }, [pendingEditId, customerList]);
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/customers/${id}`, {}),
     onSuccess: () => {
@@ -2060,10 +2089,21 @@ export default function Customers() {
   });
 
   if (formMode !== null) {
+    if (formMode === "edit" && !editCustomer && pendingEditId) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Skeleton className="h-8 w-48" />
+        </div>
+      );
+    }
     return (
       <CustomerFormPage
         key={editCustomer?.id ?? "new"}
-        onCancel={() => { setFormMode(null); setEditCustomer(null); }}
+        onCancel={() => {
+          setFormMode(null);
+          setEditCustomer(null);
+          try { sessionStorage.removeItem("cust_editId"); sessionStorage.removeItem("cust_formMode"); } catch {}
+        }}
         customer={editCustomer}
       />
     );
@@ -2076,7 +2116,7 @@ export default function Customers() {
           <h1 className="text-2xl font-bold text-foreground">Customers</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{customerList?.length ?? 0} customers in the system</p>
         </div>
-        <Button onClick={() => { setEditCustomer(null); setFormMode("create"); }} data-testid="button-new-customer">
+        <Button onClick={() => { setEditCustomer(null); try { sessionStorage.removeItem("cust_editId"); } catch {} setFormMode("create"); }} data-testid="button-new-customer">
           <Plus className="w-4 h-4 mr-2" />New Customer
         </Button>
       </div>
@@ -2177,7 +2217,7 @@ export default function Customers() {
                       <Button variant="ghost" size="sm" onClick={() => setHistoryCustomer(customer)} title="View History" data-testid={`button-history-customer-${customer.id}`}>
                         <History className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setEditCustomer(customer); setFormMode("edit"); }} data-testid={`button-edit-customer-${customer.id}`}>
+                      <Button variant="ghost" size="sm" onClick={() => { setEditCustomer(customer); try { sessionStorage.setItem("cust_editId", customer.id); } catch {} setFormMode("edit"); }} data-testid={`button-edit-customer-${customer.id}`}>
                         <Edit2 className="w-4 h-4" />
                       </Button>
                       {(user?.role === "admin" || user?.role === "operations_manager") && (
