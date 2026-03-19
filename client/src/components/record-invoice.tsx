@@ -406,18 +406,20 @@ export function InvoiceTemplate({
               </div>
             )}
           </div>
-          {/* Direction badge — no border, background only */}
+          {/* Direction badge — colored pill, no emoji */}
           <div style={{
             background: isInflow ? "rgba(74,222,128,0.18)" : "rgba(248,113,113,0.18)",
             borderRadius: "14px",
-            padding: "10px 18px",
+            padding: "12px 20px",
             textAlign: "center",
             flexShrink: 0,
             marginLeft: "14px",
           }}>
-            <div style={{ fontSize: "26px", lineHeight: 1 }}>{isInflow ? "⬇️" : "⬆️"}</div>
+            <div style={{ fontSize: "22px", fontWeight: 900, lineHeight: 1, color: isInflow ? GREEN : "#F87171" }}>
+              {isInflow ? "+" : "−"}
+            </div>
             <div style={{ fontSize: "10px", fontWeight: 800, color: isInflow ? GREEN : "#F87171", marginTop: "4px", letterSpacing: "1px", textTransform: "uppercase" }}>
-              {isInflow ? "Received" : "Sent"}
+              {isInflow ? "Credit" : "Debit"}
             </div>
           </div>
         </div>
@@ -480,15 +482,6 @@ export function InvoiceTemplate({
 
         <SectionBand en="Client Info" ar="بيانات العميل" />
         <F label="Name" labelAr="الاسم" value={clientName} large />
-        {customerId !== "—" && (
-          <>
-            <HR />
-            <R2
-              left={{ label: "Customer ID", value: customerId, mono: true }}
-              right={clientPhone !== "—" ? { label: "Phone", value: clientPhone } : { label: "", value: undefined }}
-            />
-          </>
-        )}
 
         {safeNotes && (<><HR /><F label="Note" value={safeNotes} /></>)}
 
@@ -510,7 +503,10 @@ export function InvoiceTemplate({
         <div style={{ color: GOLD, fontSize: "16px", fontWeight: 700, fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate", marginBottom: "4px" }}>
           شكراً لاختياركم كوين كاش
         </div>
-        <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "8px", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600 }}>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "10px", fontWeight: 600, marginBottom: "3px", letterSpacing: "0.3px" }}>
+          www.ycoincash.com
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.22)", fontSize: "8px", letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600 }}>
           Coin Cash — Trust · Speed · Integrity
         </div>
       </div>
