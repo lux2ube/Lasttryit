@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import html2canvas from "html2canvas";
+import domtoimage from "dom-to-image-more";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
@@ -544,21 +544,14 @@ async function backfillFeeFromJE(record: FinancialRecord): Promise<FinancialReco
 // ── Download: from an already-rendered ref (fast path) ────────────────────────
 
 async function blobToDownload(el: HTMLElement, filename: string) {
-  const canvas = await html2canvas(el, {
-    scale: 3,
-    useCORS: true,
-    backgroundColor: "#ffffff",
-    logging: false,
-  });
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = filename;
-    link.href = url;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, "image/png");
+  await document.fonts.ready;
+  const blob = await domtoimage.toBlob(el, { scale: 3, bgcolor: "#ffffff" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function downloadInvoiceFromElement(
@@ -679,6 +672,7 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
   const containerRef = useRef<HTMLDivElement>(null);
   const [enriched, setEnriched] = useState<FinancialRecord>(record);
   const [downloading, setDownloading] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logoSrc, setLogoSrc] = useState("/coincash-logo.png");
   const [previewScale, setPreviewScale] = useState(0.5);
@@ -687,6 +681,26 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
     getLogoDataUrl().then(setLogoSrc);
     backfillFeeFromJE(record).then(setEnriched);
   }, [record.id]);
+
+  // Silent background pre-build — never blocks button
+  useEffect(() => {
+    if (!logoSrc.startsWith("data:") || !invoiceRef.current) return;
+    let cancelled = false;
+    const el = invoiceRef.current;
+    setBlobUrl(null);
+    const timer = setTimeout(async () => {
+      try {
+        await document.fonts.ready;
+        const blob = await domtoimage.toBlob(el, { scale: 3, bgcolor: "#ffffff" });
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+      } catch (e) {
+        console.error("Invoice pre-build failed:", e);
+      }
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [enriched, logoSrc]);
 
   // Dynamically scale preview to fill container width
   useEffect(() => {
@@ -700,14 +714,22 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
   }, []);
 
   const handleDownload = useCallback(async () => {
+    const filename = `${record.recordNumber}-receipt.png`;
+    // Fast path: blob already pre-built
+    if (blobUrl) {
+      const a = document.createElement("a");
+      a.href = blobUrl; a.download = filename; a.click();
+      return;
+    }
+    // Fallback: capture on click
     if (!invoiceRef.current) return;
     setDownloading(true);
     try {
-      await blobToDownload(invoiceRef.current, `${record.recordNumber}-receipt.png`);
+      await blobToDownload(invoiceRef.current, filename);
     } finally {
       setDownloading(false);
     }
-  }, [record.recordNumber]);
+  }, [blobUrl, record.recordNumber]);
 
   const handleCopy = async () => {
     const msg = buildWhatsAppMessage(enriched, customer);
