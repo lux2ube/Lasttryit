@@ -289,7 +289,7 @@ function RecordDetailDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className={`${isConfirmed ? "max-w-lg" : "max-w-xl"} max-h-[90vh] overflow-y-auto`}>
+      <DialogContent className="max-w-none w-screen h-[100dvh] max-h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none overflow-y-auto p-4 gap-3">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Eye className="w-4 h-4 text-primary" />

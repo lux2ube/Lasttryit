@@ -676,74 +676,38 @@ export function InvoiceDownloadButton({ record, customer, size = "sm" }: RecordI
 
 export function InvoiceViewer({ record, customer }: { record: FinancialRecord; customer?: Customer }) {
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [enriched, setEnriched] = useState<FinancialRecord>(record);
   const [downloading, setDownloading] = useState(false);
-  const [building, setBuilding] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [logoSrc, setLogoSrc] = useState("/coincash-logo.png");
+  const [previewScale, setPreviewScale] = useState(0.5);
 
   useEffect(() => {
     getLogoDataUrl().then(setLogoSrc);
     backfillFeeFromJE(record).then(setEnriched);
   }, [record.id]);
 
-  // Pre-build the PNG blob as soon as the invoice is fully rendered (logo + fee data ready)
+  // Dynamically scale preview to fill container width
   useEffect(() => {
-    if (!logoSrc.startsWith("data:") || !invoiceRef.current) return;
-    let cancelled = false;
-    const el = invoiceRef.current;
-    setBlobUrl(null);
-    setBuilding(true);
-    const timer = setTimeout(async () => {
-      await Promise.all([
-        document.fonts.load("700 16px 'Cairo'"),
-        document.fonts.load("400 16px 'Cairo'"),
-        document.fonts.ready,
-      ]).catch(() => {});
-      try {
-        const canvas = await html2canvas(el, {
-          scale: 3,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-        });
-        if (cancelled) return;
-        canvas.toBlob((blob) => {
-          if (cancelled || !blob) return;
-          const url = URL.createObjectURL(blob);
-          setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
-          if (!cancelled) setBuilding(false);
-        }, "image/png");
-      } catch (e) {
-        console.error("Invoice pre-build failed:", e);
-        if (!cancelled) setBuilding(false);
-      }
-    }, 80);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [enriched, logoSrc]);
+    if (!containerRef.current) return;
+    const obs = new ResizeObserver(() => {
+      const w = containerRef.current?.clientWidth ?? 270;
+      setPreviewScale(Math.min(w / 540, 1));
+    });
+    obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
 
   const handleDownload = useCallback(async () => {
-    const filename = `${record.recordNumber}-receipt.png`;
-    if (blobUrl) {
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
-      a.click();
-      return;
-    }
-    // Fallback: build on click if pre-build wasn't ready
     if (!invoiceRef.current) return;
     setDownloading(true);
     try {
-      await blobToDownload(invoiceRef.current, filename);
+      await blobToDownload(invoiceRef.current, `${record.recordNumber}-receipt.png`);
     } finally {
       setDownloading(false);
     }
-  }, [blobUrl, record.recordNumber]);
+  }, [record.recordNumber]);
 
   const handleCopy = async () => {
     const msg = buildWhatsAppMessage(enriched, customer);
@@ -762,7 +726,7 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
   };
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex flex-col items-center gap-3 w-full">
       {/* Action buttons */}
       <div className="flex gap-2 w-full justify-end">
         <Button
@@ -779,28 +743,28 @@ export function InvoiceViewer({ record, customer }: { record: FinancialRecord; c
           variant="outline"
           className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400"
           onClick={handleDownload}
-          disabled={downloading || building}
+          disabled={downloading}
           data-testid={`button-download-${record.id}`}
         >
-          {(downloading || building) ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-          {building ? "Preparing…" : "Download"}
+          {downloading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Saving…</> : <><Download className="w-3 h-3 mr-1" />Download</>}
         </Button>
       </div>
 
-      {/* Invoice — full-size element for capture, scaled down for preview */}
-      <div style={{
-        width: "270px",
-        height: "480px",
-        overflow: "hidden",
-        borderRadius: "8px",
-        border: "1px solid rgba(0,0,0,0.12)",
-        flexShrink: 0,
-        alignSelf: "center",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
-      }}>
-        <div style={{ transform: "scale(0.5)", transformOrigin: "top left", width: "540px", height: "960px" }}>
-          <div ref={invoiceRef} style={{ display: "inline-block" }}>
-            <InvoiceTemplate record={enriched} customer={customer} logoSrc={logoSrc} />
+      {/* Invoice preview — fills dialog width dynamically */}
+      <div ref={containerRef} style={{ width: "100%" }}>
+        <div style={{
+          width: `${540 * previewScale}px`,
+          height: `${960 * previewScale}px`,
+          overflow: "hidden",
+          borderRadius: "8px",
+          border: "1px solid rgba(0,0,0,0.12)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.14)",
+          margin: "0 auto",
+        }}>
+          <div style={{ transform: `scale(${previewScale})`, transformOrigin: "top left", width: "540px", height: "960px" }}>
+            <div ref={invoiceRef} style={{ display: "inline-block" }}>
+              <InvoiceTemplate record={enriched} customer={customer} logoSrc={logoSrc} />
+            </div>
           </div>
         </div>
       </div>
