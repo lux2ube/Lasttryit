@@ -312,12 +312,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         baseData.blacklistCheckedAt = new Date();
       }
 
-      // Resolve group UUID from code when loyaltyGroup is provided
+      // Resolve group UUID from code (or name) when loyaltyGroup is provided
       if (baseData.loyaltyGroup) {
         const allGrps = await db.select().from(customerGroups).where(eq(customerGroups.isActive, true));
-        const code = String(baseData.loyaltyGroup).toLowerCase().trim();
-        const grp = allGrps.find(g => g.code.toLowerCase().trim() === code);
-        if (grp) baseData.groupId = grp.id;
+        const val = String(baseData.loyaltyGroup).toLowerCase().trim();
+        const grp = allGrps.find(g => g.code.toLowerCase().trim() === val)
+                 ?? allGrps.find(g => g.name.toLowerCase().trim() === val);
+        if (grp) { baseData.groupId = grp.id; baseData.loyaltyGroup = grp.code; }
       }
 
       const customer = await storage.createCustomer(baseData, actorId(req) ?? undefined);
@@ -364,12 +365,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (patch.verificationStatus === "verified") patch.verificationStatus = "blocked";
       }
 
-      // When loyaltyGroup code is changed, resolve the group UUID and save it
+      // When loyaltyGroup is changed, resolve UUID by code or name and normalise to code
       if (typeof patch.loyaltyGroup === "string") {
         const allGrps = await db.select().from(customerGroups).where(eq(customerGroups.isActive, true));
-        const code = patch.loyaltyGroup.toLowerCase().trim();
-        const grp = allGrps.find(g => g.code.toLowerCase().trim() === code);
+        const val = patch.loyaltyGroup.toLowerCase().trim();
+        const grp = allGrps.find(g => g.code.toLowerCase().trim() === val)
+                 ?? allGrps.find(g => g.name.toLowerCase().trim() === val);
         patch.groupId = grp?.id ?? null;
+        if (grp) patch.loyaltyGroup = grp.code;
       }
 
       const updated = await storage.updateCustomer(req.params.id, patch);
@@ -645,8 +648,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ? allGroups.find(g => g.id === (customer as any).groupId) ?? null
         : null;
       if (!group && customer.loyaltyGroup) {
-        const code = customer.loyaltyGroup.toLowerCase().trim();
-        group = allGroups.find(g => g.code.toLowerCase().trim() === code) ?? null;
+        const val = customer.loyaltyGroup.toLowerCase().trim();
+        group = allGroups.find(g => g.code.toLowerCase().trim() === val)
+             ?? allGroups.find(g => g.name.toLowerCase().trim() === val)
+             ?? null;
       }
       if (!group) {
         group = allGroups.find(g => g.code.toLowerCase() === "standard") ?? null;

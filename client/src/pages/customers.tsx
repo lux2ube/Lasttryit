@@ -1278,7 +1278,13 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
       customerStatus:     customer?.customerStatus  ?? "active",
       verificationStatus: customer?.verificationStatus ?? "unverified",
       riskLevel:          customer?.riskLevel       ?? "low",
-      loyaltyGroup:       customer?.loyaltyGroup    ?? "standard",
+      loyaltyGroup:       (() => {
+        const raw = customer?.loyaltyGroup ?? "standard";
+        if (!customerGroups?.length) return raw;
+        if (customerGroups.find(g => g.code === raw)) return raw;
+        const byName = customerGroups.find(g => g.name === raw);
+        return byName ? byName.code : raw;
+      })(),
       notes:              customer?.notes           ?? "",
       gender:             (customer?.demographics as any)?.gender      ?? "",
       dateOfBirth:        (customer?.demographics as any)?.dob         ?? "",
@@ -1777,7 +1783,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
                       <SelectContent>
                         <SelectItem value="standard">Standard</SelectItem>
                         {customerGroups?.map(g => (
-                          <SelectItem key={g.id} value={g.name}>
+                          <SelectItem key={g.id} value={g.code}>
                             <span className="flex items-center gap-2">
                               <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ background: g.color }} />
                               {g.name}
