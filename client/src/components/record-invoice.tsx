@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { createRoot } from "react-dom/client";
+import html2canvas from "html2canvas";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
@@ -379,17 +381,15 @@ export function useInvoiceDownload() {
     setLoading(true);
     try {
       const enriched = await backfillFeeFromJE(record);
-      const html2canvas = (await import("html2canvas")).default;
 
       const container = document.createElement("div");
       container.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1;";
       document.body.appendChild(container);
 
-      const { createRoot } = await import("react-dom/client");
       const root = createRoot(container);
       root.render(<InvoiceTemplate record={enriched} customer={customer} />);
 
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 150));
 
       const canvas = await html2canvas(container.firstElementChild as HTMLElement, {
         scale: 2,
