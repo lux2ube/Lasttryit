@@ -2150,11 +2150,8 @@ export class DatabaseStorage implements IStorage {
           .where(eq(journalEntries.sourceId, `${recordId}_confirm_reversal`));
 
         if (!confirmReversal) {
-          // JE exists and has NOT been reversed — this is a duplicate confirm attempt.
-          // Return the existing JE idempotently; the route will still advance the stage.
           const [full] = await db.select().from(journalEntries).where(eq(journalEntries.id, existingConfirmJE.id));
-          if (full) return full as JournalEntry;
-          // Fallback: throw (should not happen)
+          if (full) return { entry: full as JournalEntry, feeBreakdown: null };
           throw new Error('Confirmation journal entry already exists for this record. The record may already be confirmed.');
         }
         // Reversal exists → this is a re-confirmation after cancellation; proceed to create a new JE.

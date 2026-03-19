@@ -65,14 +65,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { storage } = await import("./storage");
-  try {
-    await storage.initDefaultSettings();
-    await storage.initializeConfiguration();
-  } catch (e: any) {
-    console.error("[Init] Configuration initialization failed:", e.message);
-    process.exit(1);
-  }
+  await import("./storage");
 
   await registerRoutes(httpServer, app);
 
