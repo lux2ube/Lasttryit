@@ -196,7 +196,7 @@ const WHITE     = "#FFFFFF";
 const ROW_ALT   = "#FAFAF8";
 const GREEN     = "#16A34A";
 
-const AR_FONT   = "Tahoma, Arial, sans-serif";
+const AR_FONT   = "'Cairo', Tahoma, Arial, sans-serif";
 
 // ── Row component ─────────────────────────────────────────────────────────────
 
@@ -446,6 +446,11 @@ export async function downloadInvoiceFromElement(
   const imgs = el.querySelectorAll<HTMLImageElement>('img[src="/coincash-logo.png"]');
   const origSrcs: string[] = [];
   imgs.forEach((img, i) => { origSrcs[i] = img.src; img.src = logoDataUrl; });
+  await Promise.all([
+    document.fonts.load("700 16px 'Cairo'"),
+    document.fonts.load("400 16px 'Cairo'"),
+    document.fonts.ready,
+  ]);
   try {
     const canvas = await html2canvas(el, {
       scale: 2, useCORS: false, allowTaint: true,
@@ -480,7 +485,12 @@ export function useInvoiceDownload() {
       const root = createRoot(container);
       root.render(<InvoiceTemplate record={enriched} customer={customer} logoSrc={logoDataUrl} />);
 
-      await new Promise(r => setTimeout(r, 150));
+      await Promise.all([
+        new Promise(r => setTimeout(r, 150)),
+        document.fonts.load("700 16px 'Cairo'"),
+        document.fonts.load("400 16px 'Cairo'"),
+        document.fonts.ready,
+      ]);
 
       const el = container.firstElementChild as HTMLElement;
       const canvas = await html2canvas(el, {
