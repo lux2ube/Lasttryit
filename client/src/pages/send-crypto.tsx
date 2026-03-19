@@ -30,6 +30,7 @@ import {
   Send, Wallet, RefreshCw, CheckCircle2, XCircle, Clock,
   AlertCircle, ChevronsUpDown, Check, Copy, ExternalLink,
   Loader2, ShieldAlert, ArrowRight, Zap, ChevronLeft, ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import type { Customer, CustomerWallet, ExchangeRate, CryptoSend } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
@@ -38,6 +39,8 @@ const BSCSCAN_TX = "https://bscscan.com/tx/";
 const BSCSCAN_ADDR = "https://bscscan.com/address/";
 const FIAT_CURRENCIES = ["USD", "YER", "SAR", "AED", "KWD"];
 const PAGE_SIZE = 50;
+const MIN_FEE_USD = 1.0;
+const COOLDOWN_MS = 8000;
 
 interface AccountInfo {
   account: { id: string; code: string; name: string };
@@ -113,11 +116,11 @@ export default function SendCrypto() {
   const [addrLoading, setAddrLoading] = useState(false);
   const [addrMatch, setAddrMatch] = useState<string | null>(null);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Manual USDT entry mode
   const [amountMode, setAmountMode] = useState<"fiat" | "usdt">("fiat");
   const [manualUsdt, setManualUsdt] = useState("");
-  // Pagination
   const [histPage, setHistPage] = useState(1);
+  const [sendCooldown, setSendCooldown] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
 
   const { data: acctInfo, isLoading: acctLoading, error: acctError } = useQuery<AccountInfo>({
     queryKey: ["/api/crypto-sends/account-info"],
@@ -129,6 +132,7 @@ export default function SendCrypto() {
   const wlt = acctInfo?.wallet;
   const configured = wlt?.configured ?? false;
   const wltUsdt = parseFloat(wlt?.usdtBalance ?? "0");
+  const networkFee = prov?.networkFeeUsd ?? 0;
 
   useEffect(() => {
     if (prov && !feeRateInit) { setDepositFeeRate(String(prov.depositFeeRate)); setFeeRateInit(true); }
@@ -138,10 +142,12 @@ export default function SendCrypto() {
   const numRate = parseFloat(buyRate) || 0;
   const feeRate = parseFloat(depositFeeRate) || 0;
 
-  // Calculate USDT depending on mode
   const usdtFromFiat = numRate > 0 ? numFiat / numRate / (1 + feeRate / 100) : 0;
   const usdtToSend = amountMode === "usdt" ? (parseFloat(manualUsdt) || 0) : usdtFromFiat;
-  const feeUsd = usdtToSend * (feeRate / 100);
+  const rawFeeUsd = usdtToSend * (feeRate / 100);
+  const feeUsd = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD ? MIN_FEE_USD : rawFeeUsd;
+  const minFeeApplied = rawFeeUsd > 0 && rawFeeUsd < MIN_FEE_USD;
+  const totalDebit = usdtToSend + feeUsd + networkFee;
 
   const { data: customers = [] } = useQuery<Customer[]>({ queryKey: ["/api/customers"] });
   const { data: custWallets = [] } = useQuery<CustomerWallet[]>({
@@ -169,20 +175,23 @@ export default function SendCrypto() {
     setBuyRate(m?.buyRate ? parseFloat(String(m.buyRate)).toFixed(6) : "");
   }, [fiatCurrency, rates.length]);
 
-  // Auto-fill address when customer selected (matching provider)
   useEffect(() => {
-    if (!selectedCustomer || custWallets.length === 0) return;
-    const provId = prov?.id;
-    const pn = prov?.name?.toLowerCase();
-    // Match by providerId first, then by provider name
+    if (!selectedCustomer || custWallets.length === 0 || !prov) return;
+    const provId = prov.id;
+    const pn = prov.name?.toLowerCase();
+    const nc = prov.networkCode?.toLowerCase();
     const dw = custWallets.find(w => w.providerId === provId && w.isDefault)
       ?? custWallets.find(w => w.providerId === provId)
       ?? custWallets.find(w => w.providerName?.toLowerCase() === pn && w.isDefault)
-      ?? custWallets.find(w => w.providerName?.toLowerCase() === pn);
-    if (dw) { setRecipientAddress(dw.addressOrId); setAddrMatch(null); }
+      ?? custWallets.find(w => w.providerName?.toLowerCase() === pn)
+      ?? custWallets.find(w => w.providerName?.toLowerCase().includes(nc ?? "") && nc && nc.length > 2 && w.isDefault)
+      ?? custWallets.find(w => w.providerName?.toLowerCase().includes(nc ?? "") && nc && nc.length > 2);
+    if (dw) {
+      setRecipientAddress(dw.addressOrId);
+      setAddrMatch(`Auto-filled from ${dw.providerName || prov.name}${dw.isDefault ? " (default)" : ""}`);
+    }
   }, [custWallets, selectedCustomer, prov]);
 
-  // Reverse lookup: auto-select customer when address is entered
   const doLookup = useCallback(async (addr: string) => {
     if (addr.length < 10) { setAddrMatch(null); return; }
     setAddrLoading(true);
@@ -192,18 +201,28 @@ export default function SendCrypto() {
       const data: ReverseLookupResult | null = await res.json();
       if (data?.customer && !selectedCustomer) {
         setSelectedCustomer(data.customer);
-        setAddrMatch(`Auto-detected: ${data.customer.fullName}`);
+        setAddrMatch(`Auto-detected: ${data.customer.fullName} (${data.wallet.providerName || "wallet"})`);
       } else if (data?.customer) {
-        setAddrMatch(`Whitelisted for ${data.customer.fullName}`);
+        if (data.customer.id !== selectedCustomer?.id) {
+          setAddrMatch(`This address belongs to ${data.customer.fullName}, not ${selectedCustomer?.fullName}`);
+        } else {
+          setAddrMatch(`Whitelisted for ${data.customer.fullName}`);
+        }
       } else { setAddrMatch(null); }
     } catch { setAddrMatch(null); }
     finally { setAddrLoading(false); }
   }, [selectedCustomer]);
 
   const onAddrChange = (v: string) => {
-    setRecipientAddress(v); setAddrMatch(null);
+    setRecipientAddress(v); setAddrMatch(null); setDuplicateError(null);
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     lookupTimer.current = setTimeout(() => doLookup(v), 600);
+  };
+
+  const resetForm = () => {
+    setFiatAmount(""); setManualUsdt(""); setRecipientAddress("");
+    setSelectedCustomer(null); setAddrMatch(null); setPreview(null);
+    setDuplicateError(null);
   };
 
   const previewMut = useMutation({
@@ -215,7 +234,7 @@ export default function SendCrypto() {
         fiatCurrency, exchangeRate: buyRate, depositFeeRate,
         fromAccountId: acct?.code || "1521",
       }),
-    onSuccess: (d: PreviewResult) => { setPreview(d); setConfirmOpen(true); },
+    onSuccess: (d: PreviewResult) => { setPreview(d); setConfirmOpen(true); setDuplicateError(null); },
     onError: (e: Error) => toast({ title: "Preview failed", description: e.message, variant: "destructive" }),
   });
 
@@ -230,30 +249,46 @@ export default function SendCrypto() {
       }),
     onSuccess: (d: CryptoSend) => {
       setConfirmOpen(false);
-      toast({ title: "USDT Sent", description: `${d.sendNumber} — TX: ${shortHash(d.txHash ?? "")}` });
-      setFiatAmount(""); setManualUsdt(""); setRecipientAddress(""); setSelectedCustomer(null);
-      setAddrMatch(null); setPreview(null);
+      toast({ title: "USDT Sent Successfully", description: `${d.sendNumber} — TX: ${shortHash(d.txHash ?? "")}` });
+      resetForm();
+      setSendCooldown(true);
+      setTimeout(() => setSendCooldown(false), COOLDOWN_MS);
       queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends"] });
       queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends/account-info"] });
     },
-    onError: (e: Error) => { setConfirmOpen(false); toast({ title: "Send failed", description: e.message, variant: "destructive" }); },
+    onError: (e: Error) => {
+      setConfirmOpen(false);
+      const msg = e.message || "";
+      if (msg.includes("Duplicate") || msg.includes("duplicate") || msg.includes("409")) {
+        setDuplicateError(msg);
+        toast({ title: "Duplicate Blocked", description: msg, variant: "destructive" });
+      } else {
+        toast({ title: "Send failed", description: msg, variant: "destructive" });
+      }
+    },
   });
 
   const filtered = customers.filter(c =>
-    !customerSearch ||
-    c.fullName?.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phonePrimary?.includes(customerSearch) ||
-    c.customerId?.toLowerCase().includes(customerSearch.toLowerCase())
+    c.customerStatus !== "inactive" && (
+      !customerSearch ||
+      c.fullName?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      c.phonePrimary?.includes(customerSearch) ||
+      c.customerId?.toLowerCase().includes(customerSearch.toLowerCase())
+    )
   );
 
   const canPreview = !!selectedCustomer && recipientAddress.length > 10 && usdtToSend > 0;
   const provWallets = custWallets.filter(w =>
-    w.providerId === prov?.id || w.providerName?.toLowerCase() === prov?.name?.toLowerCase()
+    w.providerId === prov?.id ||
+    w.providerName?.toLowerCase() === prov?.name?.toLowerCase() ||
+    (prov?.networkCode && w.providerName?.toLowerCase().includes(prov.networkCode.toLowerCase()))
   );
   const rateOptions = rates.filter(r =>
     (r.fromCurrency === fiatCurrency && r.toCurrency === "USD") ||
     (r.fromCurrency === "USD" && r.toCurrency === fiatCurrency)
   ).slice(0, 3);
+
+  const addrMismatch = addrMatch?.startsWith("This address belongs to");
 
   if (acctLoading) {
     return (
@@ -290,20 +325,25 @@ export default function SendCrypto() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
 
-        {/* Header — compact */}
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Send className="w-5 h-5 text-primary" />
             Send Crypto
           </h1>
-          <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends/account-info"] })}
-            data-testid="button-refresh-balance">
-            <RefreshCw className="w-3 h-3" /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {prov && (
+              <Badge variant="outline" className="text-[10px] font-mono">
+                {prov.networkCode} via {prov.name}
+              </Badge>
+            )}
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/crypto-sends/account-info"] })}
+              data-testid="button-refresh-balance">
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </Button>
+          </div>
         </div>
 
-        {/* Wallet strip */}
         {!configured ? (
           <Alert variant="destructive">
             <ShieldAlert className="w-4 h-4" />
@@ -329,9 +369,26 @@ export default function SendCrypto() {
           </div>
         )}
 
+        {duplicateError && (
+          <Alert variant="destructive" className="animate-in fade-in">
+            <AlertTriangle className="w-4 h-4" />
+            <AlertDescription className="text-sm">
+              <strong>Duplicate Blocked:</strong> {duplicateError}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {sendCooldown && (
+          <Alert className="border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-700 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-green-600" />
+            <AlertDescription className="text-sm text-green-700 dark:text-green-400">
+              Transaction sent successfully. Cooldown active — please wait before sending again.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid grid-cols-1 xl:grid-cols-[460px_1fr] gap-6">
 
-          {/* ── Form ── */}
           <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b bg-muted/30">
               <h2 className="text-sm font-semibold">New Outflow</h2>
@@ -339,7 +396,6 @@ export default function SendCrypto() {
 
             <div className="p-5 space-y-4">
 
-              {/* Customer */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Customer <span className="text-destructive">*</span></label>
                 <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
@@ -361,7 +417,7 @@ export default function SendCrypto() {
                         <CommandGroup>
                           {filtered.slice(0, 50).map(c => (
                             <CommandItem key={c.id} value={c.fullName}
-                              onSelect={() => { setSelectedCustomer(c); setCustomerOpen(false); setCustomerSearch(""); setRecipientAddress(""); setAddrMatch(null); }}
+                              onSelect={() => { setSelectedCustomer(c); setCustomerOpen(false); setCustomerSearch(""); setRecipientAddress(""); setAddrMatch(null); setDuplicateError(null); }}
                               data-testid={`item-customer-${c.id}`}>
                               <Check className={`w-3.5 h-3.5 mr-2 shrink-0 ${selectedCustomer?.id === c.id ? "opacity-100" : "opacity-0"}`} />
                               <div className="flex flex-col">
@@ -376,30 +432,30 @@ export default function SendCrypto() {
                   </PopoverContent>
                 </Popover>
                 {selectedCustomer && (
-                  <button onClick={() => { setSelectedCustomer(null); setRecipientAddress(""); setAddrMatch(null); }}
+                  <button onClick={() => { resetForm(); }}
                     className="text-[11px] text-muted-foreground hover:text-destructive" data-testid="button-clear-customer">
                     Clear
                   </button>
                 )}
               </div>
 
-              {/* Wallet address */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Recipient Address <span className="text-destructive">*</span></label>
                 <div className="relative">
                   <Input data-testid="input-recipient-address" placeholder="0x…" value={recipientAddress}
-                    onChange={e => onAddrChange(e.target.value)} className="font-mono text-xs pr-8 h-9" />
+                    onChange={e => onAddrChange(e.target.value)}
+                    className={`font-mono text-xs pr-8 h-9 ${addrMismatch ? "border-amber-500 focus-visible:ring-amber-400" : ""}`} />
                   {addrLoading && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-muted-foreground" />}
                 </div>
                 {addrMatch && (
-                  <p className="text-[11px] text-green-600 dark:text-green-400 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> {addrMatch}
+                  <p className={`text-[11px] flex items-center gap-1 ${addrMismatch ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
+                    {addrMismatch ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />} {addrMatch}
                   </p>
                 )}
                 {provWallets.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-0.5">
                     {provWallets.map(w => (
-                      <button key={w.id} onClick={() => { setRecipientAddress(w.addressOrId); setAddrMatch(null); }}
+                      <button key={w.id} onClick={() => { setRecipientAddress(w.addressOrId); setAddrMatch(`Selected: ${w.providerName || prov?.name || ""}`); setDuplicateError(null); }}
                         data-testid={`button-wallet-${w.id}`}
                         className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-mono transition-colors hover:bg-accent ${
                           recipientAddress === w.addressOrId ? "border-primary bg-primary/5" : "border-border"}`}>
@@ -413,7 +469,6 @@ export default function SendCrypto() {
 
               <Separator />
 
-              {/* Amount mode toggle */}
               <div className="flex items-center gap-2">
                 <label className="text-xs font-medium text-muted-foreground">Amount Entry:</label>
                 <div className="flex rounded-md border overflow-hidden text-xs">
@@ -438,12 +493,11 @@ export default function SendCrypto() {
 
               {amountMode === "fiat" ? (
                 <>
-                  {/* Amount + Currency — same line */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">Fiat Amount</label>
                     <div className="flex gap-2">
                       <Input data-testid="input-fiat-amount" type="number" step="0.01" min="0" placeholder="0.00"
-                        value={fiatAmount} onChange={e => setFiatAmount(e.target.value)} className="font-mono flex-1 h-9" />
+                        value={fiatAmount} onChange={e => { setFiatAmount(e.target.value); setDuplicateError(null); }} className="font-mono flex-1 h-9" />
                       <Select value={fiatCurrency} onValueChange={v => { setFiatCurrency(v); setBuyRate(""); }}>
                         <SelectTrigger className="w-20 shrink-0 h-9 text-xs" data-testid="select-fiat-currency">
                           <SelectValue />
@@ -455,7 +509,6 @@ export default function SendCrypto() {
                     </div>
                   </div>
 
-                  {/* Rate + Fee — same line */}
                   <div className="flex gap-2">
                     <div className="flex-1 space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Rate ({fiatCurrency}/USDT)</label>
@@ -491,11 +544,10 @@ export default function SendCrypto() {
                 </>
               ) : (
                 <>
-                  {/* Direct USDT input */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">USDT Amount</label>
                     <Input data-testid="input-manual-usdt" type="number" step="0.000001" min="0" placeholder="0.000000"
-                      value={manualUsdt} onChange={e => setManualUsdt(e.target.value)} className="font-mono h-9" />
+                      value={manualUsdt} onChange={e => { setManualUsdt(e.target.value); setDuplicateError(null); }} className="font-mono h-9" />
                   </div>
                   <div className="flex gap-2">
                     <div className="flex-1 space-y-1">
@@ -516,7 +568,6 @@ export default function SendCrypto() {
                 </>
               )}
 
-              {/* USDT result */}
               <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 flex items-center justify-between">
                 <span className="text-xs font-medium">USDT to send</span>
                 <span className="text-lg font-bold font-mono text-primary">
@@ -530,28 +581,37 @@ export default function SendCrypto() {
                 </p>
               )}
 
-              {/* Debit breakdown — compact */}
               <div className="rounded-md border divide-y text-xs">
                 <div className="px-3 py-1.5 flex justify-between text-muted-foreground">
-                  <span>USDT to send</span>
+                  <span>USDT on-chain</span>
                   <span className="font-mono">{usdtToSend > 0 ? usdtToSend.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : "—"} USDT</span>
                 </div>
                 <div className="px-3 py-1.5 flex justify-between text-muted-foreground">
-                  <span>Fee ({feeRate}%)</span>
-                  <span className="font-mono">{feeUsd > 0 ? `+${feeUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : "—"} USD</span>
+                  <span>Service fee ({feeRate}%){minFeeApplied ? " — min $1" : ""}</span>
+                  <span className="font-mono">{feeUsd > 0 ? `+$${feeUsd.toLocaleString("en-US", { minimumFractionDigits: 4 })}` : "—"}</span>
                 </div>
+                {networkFee > 0 && (
+                  <div className="px-3 py-1.5 flex justify-between text-muted-foreground">
+                    <span>Network / gas fee</span>
+                    <span className="font-mono">+${networkFee.toFixed(4)}</span>
+                  </div>
+                )}
                 <div className="px-3 py-2 flex justify-between font-semibold bg-muted/30">
-                  <span>Total Debit</span>
-                  <span className="font-mono">{(usdtToSend + feeUsd) > 0 ? (usdtToSend + feeUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : "—"} USD</span>
+                  <span>Total customer charge</span>
+                  <span className="font-mono">{totalDebit > 0 ? `$${totalDebit.toLocaleString("en-US", { minimumFractionDigits: 4 })}` : "—"}</span>
                 </div>
               </div>
 
               <Button data-testid="button-preview-send" className="w-full gap-2 h-10"
-                disabled={!canPreview || !configured || previewMut.isPending}
+                disabled={!canPreview || !configured || previewMut.isPending || sendCooldown || addrMismatch === true}
                 onClick={() => previewMut.mutate()}>
-                {previewMut.isPending
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Calculating…</>
-                  : <><ArrowRight className="w-4 h-4" /> Review & Send</>}
+                {sendCooldown ? (
+                  <><Clock className="w-4 h-4" /> Cooldown…</>
+                ) : previewMut.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Calculating…</>
+                ) : (
+                  <><ArrowRight className="w-4 h-4" /> Review & Send</>
+                )}
               </Button>
 
               {!configured && (
@@ -560,7 +620,6 @@ export default function SendCrypto() {
             </div>
           </div>
 
-          {/* ── History ── */}
           <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b bg-muted/30 flex items-center justify-between">
               <h2 className="text-sm font-semibold">History <span className="text-muted-foreground font-normal ml-1 text-xs">{histResult?.total ?? 0}</span></h2>
@@ -640,7 +699,6 @@ export default function SendCrypto() {
               )}
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-5 py-3 border-t bg-muted/20">
                 <span className="text-xs text-muted-foreground">
@@ -666,7 +724,6 @@ export default function SendCrypto() {
         </div>
       </div>
 
-      {/* ── Confirm Dialog ── */}
       <Dialog open={confirmOpen} onOpenChange={v => { if (!execMut.isPending) setConfirmOpen(v); }}>
         <DialogContent className="max-w-sm" data-testid="dialog-confirm-send">
           <DialogHeader>
@@ -685,6 +742,7 @@ export default function SendCrypto() {
                 <div className="px-3 py-2 space-y-0.5">
                   <Row label="Customer" value={preview.customerName} />
                   <Row label="To" value={<span className="font-mono text-xs">{shortAddr(preview.recipientAddress)}</span>} />
+                  <Row label="Network" value={<Badge variant="outline" className="text-[10px] font-mono">{preview.network}</Badge>} />
                 </div>
                 <div className="px-3 py-2.5">
                   <Row label="USDT to Send" value={
@@ -695,9 +753,12 @@ export default function SendCrypto() {
                 <div className="px-3 py-2 space-y-0.5">
                   <Row label="USDT on-chain" value={<span className="font-mono">{parseFloat(preview.usdtAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })} USDT</span>} />
                   <Row label={`Service fee (${parseFloat(preview.depositFeeRate).toFixed(2)}%)${preview.minFeeApplied ? " — min $1" : ""}`} value={<span className="font-mono">+${parseFloat(preview.depositFeeFiat).toLocaleString("en-US", { minimumFractionDigits: 4 })}</span>} />
+                  {parseFloat(preview.networkFeeUsd) > 0 && (
+                    <Row label="Network / gas fee" value={<span className="font-mono">+${parseFloat(preview.networkFeeUsd).toFixed(4)}</span>} />
+                  )}
                   <Separator className="my-1" />
-                  <Row label="Total Debit" value={
-                    <span className="font-mono">{(parseFloat(preview.usdtAmount) + parseFloat(preview.depositFeeFiat)).toLocaleString("en-US", { minimumFractionDigits: 2 })} USD</span>
+                  <Row label="Total customer charge" value={
+                    <span className="font-mono">${(parseFloat(preview.usdtAmount) + parseFloat(preview.depositFeeFiat) + parseFloat(preview.networkFeeUsd)).toLocaleString("en-US", { minimumFractionDigits: 4 })}</span>
                   } bold />
                 </div>
               </div>
