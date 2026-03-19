@@ -370,8 +370,6 @@ export function InvoiceTemplate({
         Client Info · <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>بيانات العميل</span>
       </div>
       <Row label="Name" value={clientName} bold />
-      <Row label="Client ID" value={customerId} mono alt />
-      {customer && <Row label="Phone" value={clientPhone} />}
 
       {/* ── Notes ─────────────────────────────────────────────────────────── */}
       {safeNotes && (
@@ -385,19 +383,12 @@ export function InvoiceTemplate({
       )}
 
       {/* ══ FOOTER ══════════════════════════════════════════════════════════ */}
-      <div style={{ background: DARK, padding: "14px 24px", textAlign: "center" }}>
+      <div style={{ background: DARK, padding: "16px 24px", textAlign: "center" }}>
         <div style={{
-          display: "inline-block",
-          background: "rgba(245,166,35,0.15)", color: GOLD,
-          fontSize: "12px", fontWeight: 700,
-          padding: "4px 18px", borderRadius: "20px", letterSpacing: "0.3px",
-          marginBottom: "8px", border: `1px solid rgba(245,166,35,0.25)`,
+          color: GOLD, fontSize: "14px", fontWeight: 700,
+          fontFamily: AR_FONT, direction: "rtl", unicodeBidi: "isolate",
         }}>
-          <span style={{ direction: "ltr", unicodeBidi: "isolate" }}>✓</span>{" "}
-          <span style={{ direction: "rtl", unicodeBidi: "isolate", fontFamily: AR_FONT }}>تم تأكيد العملية بنجاح</span>
-        </div>
-        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "9px", marginTop: "4px", letterSpacing: "0.3px" }}>
-          © {new Date().getFullYear()} Coin Cash · ycoincash.com
+          شكرا لاختياركم كوين كاش
         </div>
       </div>
       <div style={{ height: "4px", background: `linear-gradient(90deg, ${GOLD}, ${GOLD_DARK})` }} />
