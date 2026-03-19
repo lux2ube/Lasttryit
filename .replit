@@ -44,4 +44,3 @@ expertMode = true
 [userenv]
 
 [userenv.shared]
-SMS_WEBHOOK_SECRET = "8cc14c63e8ee3b8710bcf103ad951a46"
