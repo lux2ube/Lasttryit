@@ -310,20 +310,8 @@ function RecordDetailDialog({
           )}
         </div>
 
-        {/* ── Confirmed: show invoice viewer ────────────────────────────── */}
-        {isConfirmed ? (
-          <InvoiceViewer record={record} customer={customer} />
-        ) : (
-          /* ── Not confirmed: show plain detail rows ──────────────────── */
-          <div className="space-y-1.5 text-sm">
-            {rows.filter(([, v]) => v).map(([label, value]) => (
-              <div key={label} className="flex gap-2 py-1.5 border-b border-border/40 last:border-0">
-                <span className="w-40 shrink-0 text-muted-foreground text-xs font-medium pt-0.5">{label}</span>
-                <span className={`flex-1 text-foreground break-all ${label === "TX Hash / Reference" ? "font-mono text-xs" : ""}`}>{value}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* ── Show invoice viewer for all records ───────────────────────── */}
+        <InvoiceViewer record={record} customer={customer} />
 
         {/* ── Internal Details toggle (confirmed records only) ──────────── */}
         {isConfirmed && (

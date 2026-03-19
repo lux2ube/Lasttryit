@@ -393,10 +393,10 @@ export function InvoiceTemplate({
                 : <span>Total Debit · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-              <span style={{ color: WHITE, fontSize: "50px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2px" }}>
+              <span style={{ color: isInflow ? GREEN : "#F87171", fontSize: "50px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2px" }}>
                 {displayTotal}
               </span>
-              <span style={{ color: GOLD, fontSize: "20px", fontWeight: 800 }}>
+              <span style={{ color: isInflow ? GREEN : "#F87171", fontSize: "20px", fontWeight: 800, opacity: 0.85 }}>
                 {displayCcy}
               </span>
             </div>
@@ -406,20 +406,17 @@ export function InvoiceTemplate({
               </div>
             )}
           </div>
-          {/* Direction badge — colored pill, no emoji */}
+          {/* Direction symbol — colored +/− only */}
           <div style={{
-            background: isInflow ? "rgba(74,222,128,0.18)" : "rgba(248,113,113,0.18)",
+            background: isInflow ? "rgba(74,222,128,0.15)" : "rgba(248,113,113,0.15)",
             borderRadius: "14px",
-            padding: "12px 20px",
+            padding: "12px 22px",
             textAlign: "center",
             flexShrink: 0,
             marginLeft: "14px",
           }}>
-            <div style={{ fontSize: "22px", fontWeight: 900, lineHeight: 1, color: isInflow ? GREEN : "#F87171" }}>
+            <div style={{ fontSize: "32px", fontWeight: 900, lineHeight: 1, color: isInflow ? GREEN : "#F87171" }}>
               {isInflow ? "+" : "−"}
-            </div>
-            <div style={{ fontSize: "10px", fontWeight: 800, color: isInflow ? GREEN : "#F87171", marginTop: "4px", letterSpacing: "1px", textTransform: "uppercase" }}>
-              {isInflow ? "Credit" : "Debit"}
             </div>
           </div>
         </div>
