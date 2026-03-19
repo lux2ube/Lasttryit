@@ -178,14 +178,20 @@ export default function SendCrypto() {
   useEffect(() => {
     if (!selectedCustomer || custWallets.length === 0 || !prov) return;
     const provId = prov.id;
-    const pn = prov.name?.toLowerCase();
-    const nc = prov.networkCode?.toLowerCase();
-    const dw = custWallets.find(w => w.providerId === provId && w.isDefault)
-      ?? custWallets.find(w => w.providerId === provId)
-      ?? custWallets.find(w => w.providerName?.toLowerCase() === pn && w.isDefault)
-      ?? custWallets.find(w => w.providerName?.toLowerCase() === pn)
-      ?? custWallets.find(w => w.providerName?.toLowerCase().includes(nc ?? "") && nc && nc.length > 2 && w.isDefault)
-      ?? custWallets.find(w => w.providerName?.toLowerCase().includes(nc ?? "") && nc && nc.length > 2);
+    const pn = prov.name?.toLowerCase() ?? "";
+    const nc = prov.networkCode?.toLowerCase() ?? "";
+    const matchesProvider = (w: CustomerWallet) => {
+      if (w.providerId === provId) return true;
+      const wn = w.providerName?.toLowerCase() ?? "";
+      if (wn === pn) return true;
+      if (wn && pn && (pn.includes(wn) || wn.includes(pn))) return true;
+      if (wn.includes("usdt") && pn.includes("usdt")) return true;
+      if (nc && wn.includes(nc)) return true;
+      if (w.addressOrId?.startsWith("0x") && nc === "bep20") return true;
+      return false;
+    };
+    const dw = custWallets.find(w => matchesProvider(w) && w.isDefault)
+      ?? custWallets.find(w => matchesProvider(w));
     if (dw) {
       setRecipientAddress(dw.addressOrId);
       setAddrMatch(`Auto-filled from ${dw.providerName || prov.name}${dw.isDefault ? " (default)" : ""}`);
@@ -278,11 +284,18 @@ export default function SendCrypto() {
   );
 
   const canPreview = !!selectedCustomer && recipientAddress.length > 10 && usdtToSend > 0;
-  const provWallets = custWallets.filter(w =>
-    w.providerId === prov?.id ||
-    w.providerName?.toLowerCase() === prov?.name?.toLowerCase() ||
-    (prov?.networkCode && w.providerName?.toLowerCase().includes(prov.networkCode.toLowerCase()))
-  );
+  const provWallets = custWallets.filter(w => {
+    if (!prov) return false;
+    if (w.providerId === prov.id) return true;
+    const wn = w.providerName?.toLowerCase() ?? "";
+    const pn = prov.name?.toLowerCase() ?? "";
+    if (wn === pn) return true;
+    if (wn && pn && (pn.includes(wn) || wn.includes(pn))) return true;
+    if (wn.includes("usdt") && pn.includes("usdt")) return true;
+    if (prov.networkCode && wn.includes(prov.networkCode.toLowerCase())) return true;
+    if (w.addressOrId?.startsWith("0x") && prov.networkCode?.toLowerCase() === "bep20") return true;
+    return false;
+  });
   const rateOptions = rates.filter(r =>
     (r.fromCurrency === fiatCurrency && r.toCurrency === "USD") ||
     (r.fromCurrency === "USD" && r.toCurrency === fiatCurrency)

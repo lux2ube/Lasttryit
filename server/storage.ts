@@ -674,7 +674,7 @@ export class DatabaseStorage implements IStorage {
         code: n.code, name: n.name, blockchain: n.blockchain,
         nativeToken: n.nativeToken, networkFeeUsd: n.networkFeeUsd, sortOrder: n.sortOrder,
       }).onConflictDoUpdate({ target: cryptoNetworks.code, set: {
-        name: n.name, networkFeeUsd: n.networkFeeUsd, updatedAt: new Date(),
+        name: n.name, updatedAt: new Date(),
       }});
     }
     // Helper: get a network ID by code (for FK linking in providers)
