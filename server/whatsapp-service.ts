@@ -50,8 +50,18 @@ let baileysGroups: Map<string, any> = new Map();
 let reconnectAttempts = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+function hasAuthSession(): boolean {
+  try {
+    if (!fs.existsSync(WA_AUTH_DIR)) return false;
+    const files = fs.readdirSync(WA_AUTH_DIR);
+    return files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function getReconnectDelayMs(): number {
-  // Exponential backoff: 5s, 10s, 20s, 40s … capped at 5 minutes + random jitter ±2s
+  // Exponential backoff: 5s, 10s, 20s, 40s … capped at 5 minutes + ±2s jitter
   const base = Math.min(5_000 * Math.pow(2, reconnectAttempts), 300_000);
   const jitter = Math.floor(Math.random() * 4_000) - 2_000;
   return Math.max(5_000, base + jitter);
@@ -69,7 +79,11 @@ function clearAuthSession() {
 }
 
 async function initBaileys() {
-  if (baileysStatus === "connecting" || baileysStatus === "connected") return;
+  // Idempotent — skip if already connecting or connected
+  if (baileysStatus === "connecting" || baileysStatus === "connected") {
+    console.log(`[WhatsApp] initBaileys skipped — already ${baileysStatus}`);
+    return;
+  }
 
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -100,25 +114,25 @@ async function initBaileys() {
       auth: state,
 
       // ── Anti-ban: mimic real WhatsApp Web on Chrome ───────────────────────
-      browser: Browsers.appropriate("Chrome"),  // ["macOS", "Chrome", "OS-version"] auto-detected
+      browser: Browsers.appropriate("Chrome"),
       printQRInTerminal: false,
 
       // ── Connection tuning ─────────────────────────────────────────────────
       connectTimeoutMs: 60_000,
       defaultQueryTimeoutMs: 30_000,
-      keepAliveIntervalMs: 25_000,   // WhatsApp Web default is ~30s; slightly shorter is safer
+      keepAliveIntervalMs: 25_000,
       retryRequestDelayMs: 2_500,
       maxMsgRetryCount: 5,
 
       // ── Privacy & stealth ─────────────────────────────────────────────────
-      markOnlineOnConnect: false,    // Don't broadcast online status when connecting
-      syncFullHistory: false,        // Don't pull full chat history — only recent
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
       fireInitQueries: true,
 
       // ── Performance ───────────────────────────────────────────────────────
       generateHighQualityLinkPreview: false,
 
-      // ── Prevent "store not found" errors when retrying messages ──────────
+      // ── Prevent "store not found" errors on retried messages ──────────────
       getMessage: async (_key: any) => ({ conversation: "" }),
 
       // ── Suppress Baileys' internal verbose logging ────────────────────────
@@ -136,7 +150,7 @@ async function initBaileys() {
         baileysQr = qr;
         baileysStatus = "qr_ready";
         baileysLastError = null;
-        reconnectAttempts = 0; // Reset on fresh QR — connection is progressing
+        reconnectAttempts = 0;
         try {
           const QRCode = (await import("qrcode")).default;
           baileysQrBase64 = await QRCode.toDataURL(qr, {
@@ -174,11 +188,9 @@ async function initBaileys() {
         console.log(`[WhatsApp] Connection closed — statusCode: ${statusCode}, loggedOut: ${loggedOut}`);
 
         if (loggedOut) {
-          // Fully logged out — clear session so next connect shows a fresh QR
           console.log("[WhatsApp] Logged out — clearing session for re-pairing");
           clearAuthSession();
         } else {
-          // Network drop or server-side reset — reconnect with backoff
           reconnectAttempts++;
           const delay = getReconnectDelayMs();
           console.log(`[WhatsApp] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})…`);
@@ -202,6 +214,8 @@ async function initBaileys() {
     baileysStatus = "disconnected";
     baileysLastError = e.message;
     console.error("[WhatsApp] Baileys init error:", e.message);
+    // Retry after 30s on init error
+    reconnectTimer = setTimeout(() => initBaileys(), 30_000);
   }
 }
 
@@ -300,16 +314,40 @@ class WhatsAppService extends EventEmitter {
 
   async initialize() {
     if (!this.isClientMode) {
-      console.log("[WhatsApp] Server mode — starting Baileys directly");
+      // Server/VPS mode: only start if not already running
+      if (baileysStatus === "connecting" || baileysStatus === "connected") {
+        console.log(`[WhatsApp] Server mode — already ${baileysStatus}, skipping re-init`);
+        return;
+      }
+      console.log("[WhatsApp] Server mode — starting Baileys");
       await initBaileys();
       this.startQueueProcessor();
       this.startStatusPolling();
       return;
     }
-    console.log(`[WhatsApp] Client mode — connecting to bridge at ${BRIDGE_URL}`);
+
+    // Client/Replit mode: check if VPS is already live before calling /connect
+    console.log(`[WhatsApp] Client mode — checking bridge at ${BRIDGE_URL}`);
     this.startStatusPolling();
+
+    try {
+      const current = await bridgeFetch("/status");
+      this.cachedStatus = current;
+
+      if (current.status === "connected" || current.status === "qr_ready" || current.status === "connecting") {
+        // VPS is already active — don't interrupt it
+        console.log(`[WhatsApp] Bridge already ${current.status} — skipping connect call`);
+        if (current.status === "connected") this.startQueueProcessor();
+        return;
+      }
+    } catch (e: any) {
+      console.log(`[WhatsApp] Bridge pre-check failed: ${e.message} — proceeding with connect`);
+    }
+
+    // VPS is disconnected — ask it to connect
     try {
       await bridgeFetch("/connect", { method: "POST" });
+      console.log("[WhatsApp] Bridge connect requested");
     } catch (e: any) {
       console.log(`[WhatsApp] Bridge connect call failed: ${e.message}`);
     }
@@ -404,13 +442,17 @@ class WhatsAppService extends EventEmitter {
     this.isProcessing = true;
 
     try {
+      // Reset jobs stuck in 'processing' for >2 minutes (deployment/crash recovery)
       await db.execute(sql`
         UPDATE ${notificationQueue}
-        SET status = 'queued', processed_at = NULL
+        SET status = 'failed',
+            error_message = 'Reset: stuck in processing state (likely server restart)',
+            next_retry_at = NOW() + INTERVAL '30 seconds'
         WHERE status = 'processing'
-          AND processed_at < NOW() - INTERVAL '5 minutes'
+          AND processed_at < NOW() - INTERVAL '2 minutes'
       `);
 
+      // Atomically claim the next job
       const result = await db.execute(sql`
         UPDATE ${notificationQueue}
         SET status = 'processing', processed_at = NOW()
@@ -455,6 +497,22 @@ class WhatsAppService extends EventEmitter {
       maxAttempts: raw.max_attempts ?? raw.maxAttempts ?? 5,
     };
 
+    // ── At-most-once delivery: check if already sent before doing anything ──
+    const idempotencyCheck = await db.execute(sql`
+      SELECT COUNT(*) as cnt
+      FROM ${notificationAuditLog}
+      WHERE queue_id = ${job.id}
+        AND delivery_status = 'sent'
+    `);
+    const alreadySent = parseInt((idempotencyCheck as any).rows?.[0]?.cnt ?? "0") > 0;
+    if (alreadySent) {
+      console.log(`[WhatsApp] Job ${job.recordNumber} already sent (idempotency check) — marking done`);
+      await db.update(notificationQueue)
+        .set({ status: "sent", errorMessage: null, nextRetryAt: null })
+        .where(eq(notificationQueue.id, job.id));
+      return;
+    }
+
     const payload = (typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload) as Record<string, any>;
     const groupJid = job.recipientPhone;
     const message = this.formatInvoiceMessage(payload);
@@ -473,6 +531,7 @@ class WhatsAppService extends EventEmitter {
         wamid = result.wamid ?? null;
       }
 
+      // Update queue entry — clear nextRetryAt to prevent false retries
       await db.update(notificationQueue)
         .set({
           status: "sent",
@@ -480,9 +539,11 @@ class WhatsAppService extends EventEmitter {
           sentAt: new Date(),
           attempts: job.attempts + 1,
           errorMessage: null,
+          nextRetryAt: null,          // ← critical: prevent re-pickup after success
         })
         .where(eq(notificationQueue.id, job.id));
 
+      // Audit log — this is the authoritative deduplication record
       await db.insert(notificationAuditLog).values({
         queueId: job.id,
         recordId: job.recordId,
@@ -500,7 +561,7 @@ class WhatsAppService extends EventEmitter {
       this.dailyMessageCount++;
       this.burstCount++;
 
-      console.log(`[WhatsApp] Sent notification for ${job.recordNumber} to group → wamid: ${wamid}`);
+      console.log(`[WhatsApp] Sent ${job.recordNumber} → group ${groupJid} | wamid: ${wamid}`);
     } catch (err: any) {
       const attempts = job.attempts + 1;
       const isFinal = attempts >= job.maxAttempts;
@@ -602,7 +663,7 @@ class WhatsAppService extends EventEmitter {
     const groupId = customer.whatsappGroupId;
 
     if (!groupId) {
-      console.log(`[WhatsApp] Skip notification for ${record.recordNumber} — customer ${customer.customerId} has no WhatsApp group configured`);
+      console.log(`[WhatsApp] Skip notification for ${record.recordNumber} — no WhatsApp group configured`);
       return null;
     }
 
@@ -658,9 +719,18 @@ function formatAmount(val: string | number | null | undefined): string {
 export const whatsappService = new WhatsAppService();
 
 if (BRIDGE_URL) {
+  // Client/Replit mode — poll bridge, don't interrupt if already connected
   whatsappService.initialize().catch((e) => {
     console.error(`[WhatsApp] Auto-init failed: ${e.message}`);
   });
 } else {
-  console.log("[WhatsApp] No WA_BRIDGE_URL set — Baileys server mode will be used when connect is called");
+  // Server/VPS mode — auto-start from saved session for 24/7 uptime
+  if (hasAuthSession()) {
+    console.log("[WhatsApp] Auth session found — auto-starting Baileys for 24/7 operation");
+    whatsappService.initialize().catch((e) => {
+      console.error(`[WhatsApp] Auto-start failed: ${e.message}`);
+    });
+  } else {
+    console.log("[WhatsApp] No auth session — call /api/bridge/connect to pair with QR code");
+  }
 }
