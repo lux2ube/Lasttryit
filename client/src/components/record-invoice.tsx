@@ -22,6 +22,9 @@ export interface FinancialRecord {
   networkFeeUsd?: string;
   spreadRate?: string;
   spreadUsd?: string;
+  expenseUsd?: string;
+  clientLiabilityUsd?: string;
+  bankRate?: string;
   accountName?: string;
   contraAccountName?: string;
   accountField?: string;
@@ -100,21 +103,29 @@ function typeLabel(type: string, direction: string): React.ReactNode {
 
 export function buildWhatsAppMessage(record: FinancialRecord, customer?: Customer): string {
   const isInflow = record.direction === "inflow";
-  const typeAr = record.type === "cash" ? "نقدي" : "عملة رقمية";
+  const isCash = record.type === "cash";
+  const typeAr = isCash ? "نقدي" : "عملة رقمية";
   const directionAr = isInflow ? "إيداع" : "سحب";
   const liabilityLabel = isInflow ? "لكم" : "عليكم";
   const arrow = isInflow ? "⬇️" : "⬆️";
   const customerName = customer?.fullName ?? record.clientName ?? "العميل";
 
   const amount = parseFloat(record.amount);
-  const principalUsd = record.usdEquivalent ? parseFloat(record.usdEquivalent) : null;
   const feeAmountUsd = record.serviceFeeUsd ? parseFloat(record.serviceFeeUsd) : null;
   const netFeeUsd = record.networkFeeUsd ? parseFloat(record.networkFeeUsd) : 0;
+  const clientLiability = record.clientLiabilityUsd ? parseFloat(record.clientLiabilityUsd) : null;
 
   const ev = confirmedEvent(record);
   const confirmedDate = ev?.timestamp
     ? format(new Date(ev.timestamp), "dd/MM/yyyy HH:mm")
     : format(new Date(record.updatedAt), "dd/MM/yyyy HH:mm");
+
+  const principalUsd = record.usdEquivalent ? parseFloat(record.usdEquivalent) : null;
+  const heroValue = clientLiability !== null
+    ? `$${fmt(clientLiability, 2)}`
+    : principalUsd !== null
+      ? `$${fmt(principalUsd, 2)}`
+      : `${fmt(amount, record.type === "crypto" ? 6 : 2)} ${record.currency}`;
 
   const lines: string[] = [
     `━━━━━━━━━━━━━━━━━━━━`,
@@ -124,9 +135,7 @@ export function buildWhatsAppMessage(record: FinancialRecord, customer?: Custome
     `عزيزنا العميل *${customerName}* قيدنا لحسابكم لدينا التفاصيل التالية:`,
     ``,
     `📊 *نوع العملية:* ${directionAr} — ${typeAr}`,
-    principalUsd !== null
-      ? `💰 *${liabilityLabel}:* $${fmt(principalUsd, 2)}`
-      : `💰 *${liabilityLabel}:* ${fmt(amount, record.type === "crypto" ? 6 : 2)} ${record.currency}`,
+    `💰 *${liabilityLabel}:* ${heroValue}`,
     `💵 *المبلغ:* ${fmt(amount, record.type === "crypto" ? 6 : 2)} ${record.currency}`,
     `📋 *رقم العملية:* ${record.recordNumber}`,
   ];
@@ -287,6 +296,7 @@ export function InvoiceTemplate({
   record: FinancialRecord; customer?: Customer; logoSrc?: string;
 }) {
   const isCrypto = record.type === "crypto";
+  const isCash   = record.type === "cash";
   const isInflow = record.direction === "inflow";
 
   const clientName  = customer?.fullName     ?? record.clientName ?? "—";
@@ -299,29 +309,31 @@ export function InvoiceTemplate({
   const feeAmountUsd: number | null = record.serviceFeeUsd
     ? parseFloat(record.serviceFeeUsd)
     : (feeRate !== null && principalUsd !== null ? (principalUsd * feeRate) / 100 : null);
-  const netFeeUsd = record.networkFeeUsd ? parseFloat(record.networkFeeUsd) : 0;
+  const netFeeUsd    = record.networkFeeUsd ? parseFloat(record.networkFeeUsd) : 0;
+  const spreadUsd    = record.spreadUsd ? parseFloat(record.spreadUsd) : 0;
+  const clientLiability = record.clientLiabilityUsd ? parseFloat(record.clientLiabilityUsd) : null;
 
-  let totalClientAmount: number | null = null;
-  if (principalUsd !== null) {
-    if (isInflow) {
-      const deducted = principalUsd - (feeAmountUsd ?? 0) - netFeeUsd;
-      totalClientAmount = deducted > 0 ? deducted : principalUsd;
-    } else {
-      totalClientAmount = principalUsd + (feeAmountUsd ?? 0) + netFeeUsd;
-    }
-  }
+  const heroAmount = clientLiability !== null
+    ? clientLiability
+    : principalUsd !== null
+      ? (isInflow
+          ? Math.max(0, principalUsd - (feeAmountUsd ?? 0) - netFeeUsd)
+          : principalUsd + (feeAmountUsd ?? 0) + netFeeUsd)
+      : null;
 
   const safeNotes = clientNotes(record.notes);
   const logo = logoSrc ?? "/coincash-logo.png";
 
   const amountStr = `${fmt(amount, isCrypto ? 6 : 2)} ${record.currency}`;
-  const hasFees   = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
+  const hasServiceFees = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
+  const hasSpread      = Math.abs(spreadUsd) > 0.001;
+  const hasFees        = hasServiceFees || hasSpread;
 
-  const displayTotal = totalClientAmount !== null
-    ? fmt(totalClientAmount, 2)
+  const displayTotal = heroAmount !== null
+    ? fmt(heroAmount, 2)
     : principalUsd !== null ? fmt(principalUsd, 2) : fmt(amount, isCrypto ? 4 : 2);
-  const displayCcy = principalUsd !== null || totalClientAmount !== null ? "USD" : record.currency;
-  const showBreakdown = totalClientAmount !== null && principalUsd !== null && Math.abs(totalClientAmount - principalUsd) > 0.001;
+  const displayCcy = heroAmount !== null || principalUsd !== null ? "USD" : record.currency;
+  const showBreakdown = heroAmount !== null && principalUsd !== null && Math.abs(heroAmount - principalUsd) > 0.001;
 
   return (
     <div id="ccr" style={{
@@ -389,8 +401,8 @@ export function InvoiceTemplate({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "6px" }}>
               {isInflow
-                ? <span>Total Credit · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
-                : <span>Total Debit · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
+                ? <span>Net Credit to Customer · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
+                : <span>Total Customer Charge · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
               <span style={{ color: isInflow ? GREEN : "#F87171", fontSize: "50px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2px" }}>
@@ -402,7 +414,7 @@ export function InvoiceTemplate({
             </div>
             {showBreakdown && (
               <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "11px", marginTop: "5px", fontWeight: 500 }}>
-                {fmt(principalUsd!, 2)} {isInflow ? "−" : "+"} ${fmt(Math.abs(totalClientAmount! - principalUsd!), 2)} fees
+                {fmt(principalUsd!, 2)} {isInflow ? "−" : "+"} ${fmt(Math.abs(heroAmount! - principalUsd!), 2)} fees
               </div>
             )}
           </div>
@@ -442,14 +454,27 @@ export function InvoiceTemplate({
         {hasFees && (
           <>
             <HR />
-            <R2
-              left={feeAmountUsd !== null && feeAmountUsd > 0
-                ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
-                : { label: "", value: undefined }}
-              right={netFeeUsd > 0
-                ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
-                : { label: "", value: undefined }}
-            />
+            {hasServiceFees && (
+              <R2
+                left={feeAmountUsd !== null && feeAmountUsd > 0
+                  ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
+                  : { label: "", value: undefined }}
+                right={netFeeUsd > 0
+                  ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
+                  : { label: "", value: undefined }}
+              />
+            )}
+            {hasSpread && (
+              <>
+                {hasServiceFees && <HR />}
+                <F
+                  label="FX Spread"
+                  labelAr="فارق الصرف"
+                  value={`${spreadUsd < 0 ? "-" : ""}$${fmt(Math.abs(spreadUsd), 2)}`}
+                  accent={GOLD_DARK}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -515,28 +540,32 @@ export function InvoiceTemplate({
 
 async function backfillFeeFromJE(record: FinancialRecord): Promise<FinancialRecord> {
   if (record.processingStage !== "confirmed") return record;
-  const hasFeeData = record.usdEquivalent && (
-    (record.type === "crypto" && record.serviceFeeUsd) ||
-    (record.type === "cash"   && record.spreadUsd !== undefined)
-  );
-  if (hasFeeData) return record;
+  if (record.clientLiabilityUsd) return record;
   try {
     const res = await fetch(`/api/accounting/journal-entries/for-record/${record.id}`, { credentials: "include" });
     if (!res.ok) return record;
     const { lines } = await res.json() as { lines: Array<{ accountCode: string; debitAmount: string; creditAmount: string }> };
     const cr = (code: string) => lines.filter(l => l.accountCode === code).reduce((s, l) => s + parseFloat(l.creditAmount ?? "0"), 0);
     const dr = (code: string) => lines.filter(l => l.accountCode === code).reduce((s, l) => s + parseFloat(l.debitAmount  ?? "0"), 0);
-    const principalUsd = record.direction === "inflow" ? dr("2101") : cr("2101");
-    if (principalUsd <= 0) return record;
+    const suspenseUsd = record.direction === "inflow" ? dr("2101") : cr("2101");
+    if (suspenseUsd <= 0) return record;
     if (record.type === "crypto") {
       const svcFeeUsd = cr("4101");
       const gasUsd    = cr("4301");
-      const feeRate   = principalUsd > 0 ? (svcFeeUsd / principalUsd) * 100 : 0;
-      return { ...record, usdEquivalent: String(principalUsd.toFixed(4)), serviceFeeRate: String(feeRate.toFixed(4)), serviceFeeUsd: String(svcFeeUsd.toFixed(4)), networkFeeUsd: String(gasUsd.toFixed(6)) };
+      const feeRate   = suspenseUsd > 0 ? (svcFeeUsd / suspenseUsd) * 100 : 0;
+      const customerNet = record.direction === "inflow"
+        ? suspenseUsd - svcFeeUsd - gasUsd
+        : suspenseUsd + svcFeeUsd + gasUsd;
+      return { ...record, usdEquivalent: String(suspenseUsd.toFixed(4)), serviceFeeRate: String(feeRate.toFixed(4)), serviceFeeUsd: String(svcFeeUsd.toFixed(4)), networkFeeUsd: String(gasUsd.toFixed(6)), clientLiabilityUsd: String(Math.max(0, customerNet).toFixed(4)) };
     } else {
-      const sprdUsd  = cr("4201");
-      const sprdRate = principalUsd > 0 ? (sprdUsd / principalUsd) * 100 : 0;
-      return { ...record, usdEquivalent: String(principalUsd.toFixed(4)), spreadUsd: String(sprdUsd.toFixed(4)), spreadRate: String(sprdRate.toFixed(4)) };
+      const sprdCr   = cr("4201");
+      const sprdDr   = dr("4201");
+      const sprdUsd  = sprdCr - sprdDr;
+      const sprdRate = suspenseUsd > 0 ? (sprdUsd / suspenseUsd) * 100 : 0;
+      const customerNet = record.direction === "inflow"
+        ? suspenseUsd - sprdUsd
+        : suspenseUsd + sprdUsd;
+      return { ...record, usdEquivalent: String(suspenseUsd.toFixed(4)), spreadUsd: String(sprdUsd.toFixed(4)), spreadRate: String(sprdRate.toFixed(4)), clientLiabilityUsd: String(Math.max(0, customerNet).toFixed(4)) };
     }
   } catch { return record; }
 }
@@ -611,7 +640,8 @@ export function CopyWhatsAppButton({ record, customer, size = "sm" }: RecordInvo
   if (record.processingStage !== "confirmed") return null;
 
   const handleCopy = async () => {
-    const msg = buildWhatsAppMessage(record, customer);
+    const enriched = await backfillFeeFromJE(record);
+    const msg = buildWhatsAppMessage(enriched, customer);
     try {
       await navigator.clipboard.writeText(msg);
       setCopied(true);
