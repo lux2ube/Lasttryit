@@ -310,7 +310,6 @@ export function InvoiceTemplate({
     ? parseFloat(record.serviceFeeUsd)
     : (feeRate !== null && principalUsd !== null ? (principalUsd * feeRate) / 100 : null);
   const netFeeUsd    = record.networkFeeUsd ? parseFloat(record.networkFeeUsd) : 0;
-  const spreadUsd    = record.spreadUsd ? parseFloat(record.spreadUsd) : 0;
   const clientLiability = record.clientLiabilityUsd ? parseFloat(record.clientLiabilityUsd) : null;
 
   const heroAmount = clientLiability !== null
@@ -325,9 +324,7 @@ export function InvoiceTemplate({
   const logo = logoSrc ?? "/coincash-logo.png";
 
   const amountStr = `${fmt(amount, isCrypto ? 6 : 2)} ${record.currency}`;
-  const hasServiceFees = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
-  const hasSpread      = Math.abs(spreadUsd) > 0.001;
-  const hasFees        = hasServiceFees || hasSpread;
+  const hasFees = (feeAmountUsd !== null && feeAmountUsd > 0) || netFeeUsd > 0;
 
   const displayTotal = heroAmount !== null
     ? fmt(heroAmount, 2)
@@ -454,27 +451,14 @@ export function InvoiceTemplate({
         {hasFees && (
           <>
             <HR />
-            {hasServiceFees && (
-              <R2
-                left={feeAmountUsd !== null && feeAmountUsd > 0
-                  ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
-                  : { label: "", value: undefined }}
-                right={netFeeUsd > 0
-                  ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
-                  : { label: "", value: undefined }}
-              />
-            )}
-            {hasSpread && (
-              <>
-                {hasServiceFees && <HR />}
-                <F
-                  label="FX Spread"
-                  labelAr="فارق الصرف"
-                  value={`${spreadUsd < 0 ? "-" : ""}$${fmt(Math.abs(spreadUsd), 2)}`}
-                  accent={GOLD_DARK}
-                />
-              </>
-            )}
+            <R2
+              left={feeAmountUsd !== null && feeAmountUsd > 0
+                ? { label: "Service Fee", labelAr: "رسوم الخدمة", value: `$${fmt(feeAmountUsd, 2)}`, accent: GOLD_DARK }
+                : { label: "", value: undefined }}
+              right={netFeeUsd > 0
+                ? { label: "Network Fee", labelAr: "رسوم الشبكة", value: `$${fmt(netFeeUsd, 2)}`, accent: GOLD_DARK }
+                : { label: "", value: undefined }}
+            />
           </>
         )}
 
