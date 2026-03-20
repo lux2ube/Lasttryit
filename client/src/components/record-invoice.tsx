@@ -398,8 +398,8 @@ export function InvoiceTemplate({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "6px" }}>
               {isInflow
-                ? <span>Net Credit to Customer · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
-                : <span>Total Customer Charge · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
+                ? <span>Credit · <span style={{ fontFamily: AR_FONT }}>لكم</span></span>
+                : <span>Debit · <span style={{ fontFamily: AR_FONT }}>عليكم</span></span>}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
               <span style={{ color: isInflow ? GREEN : "#F87171", fontSize: "50px", fontWeight: 900, lineHeight: 1, letterSpacing: "-2px" }}>
