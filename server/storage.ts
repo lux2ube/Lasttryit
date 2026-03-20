@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, ilike, or, and, desc, sql, inArray, ne, gte, lte } from "drizzle-orm";
+import { eq, ilike, or, and, desc, sql, inArray, ne, gte, lte, gt } from "drizzle-orm";
 import {
   staffUsers, customers, customerWallets, labels, blacklistEntries,
   blacklistSubjects, blacklistConditions,
@@ -2822,7 +2822,28 @@ export class DatabaseStorage implements IStorage {
   async processSmsRawInboxEntry(id: string): Promise<SmsRawInbox> {
     const [entry] = await db.select().from(smsRawInbox).where(eq(smsRawInbox.id, id));
     if (!entry) throw new Error(`Inbox entry ${id} not found`);
-    if (entry.status === 'done') return entry; // already processed
+    if (entry.status === 'done') return entry; // already completed
+
+    // ── Atomic claim: only ONE processor can proceed ────────────────────────
+    // Both Replit and VPS processors run every 60 s. Without this guard both
+    // could SELECT the same 'pending' entry and process it simultaneously,
+    // producing duplicate records. The UPDATE is atomic at the DB level:
+    // only the process whose UPDATE matches (status = 'pending') wins; the
+    // other gets 0 rows back (claimed = undefined) and bails immediately.
+    const [claimed] = await db
+      .update(smsRawInbox)
+      .set({ status: 'processing' })
+      .where(and(
+        eq(smsRawInbox.id, id),
+        eq(smsRawInbox.status, 'pending'),  // atomic condition — only one wins
+      ))
+      .returning();
+
+    if (!claimed) {
+      // Another processor already claimed this entry — return current state
+      const [current] = await db.select().from(smsRawInbox).where(eq(smsRawInbox.id, id));
+      return current ?? entry;
+    }
 
     try {
       // Resolve config
@@ -2863,6 +2884,37 @@ export class DatabaseStorage implements IStorage {
 
       // Auto-match customer — pass accountId so tiebreaker can use account history
       const match = await this.autoMatchCustomer(parsed.client, config.accountId);
+
+      // ── Second-layer dedup: catch any duplicate that slipped through ──────
+      // Even with the atomic claim above, a failed-then-retried entry could
+      // re-run after the original already produced a record. Guard here too.
+      const [existingRecord] = await db.select({ id: records.id, recordNumber: records.recordNumber })
+        .from(records)
+        .where(and(
+          eq(records.endpointName, config.slug),
+          eq(records.endpointText, entry.rawMessage),
+          eq(records.accountId, config.accountId),
+          gt(records.createdAt, new Date(Date.now() - 5 * 60 * 1000)), // within 5 min
+        ))
+        .limit(1);
+
+      if (existingRecord) {
+        // A record for this exact SMS already exists — mark done and return
+        const [updated] = await db.update(smsRawInbox).set({
+          status: 'done',
+          ruleId: parsed.ruleId,
+          parsedClient: parsed.client,
+          parsedAmount: parsed.amount,
+          parsedDirection: parsed.direction,
+          matchedCustomerId: match?.customer.id ?? null,
+          matchMethod: match?.method ?? null,
+          matchScore: match?.score ?? null,
+          recordId: existingRecord.id,
+          processedAt: new Date(),
+          errorMessage: `Duplicate suppressed — record ${existingRecord.recordNumber} already exists`,
+        }).where(eq(smsRawInbox.id, id)).returning();
+        return updated;
+      }
 
       // Create record
       const isInflow = parsed.direction === 'inflow';
@@ -2918,9 +2970,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async processAllPendingSmsInbox(configId?: string) {
-    const conditions = [eq(smsRawInbox.status, 'pending')];
-    if (configId) conditions.push(eq(smsRawInbox.configId, configId));
-    const pending = await db.select().from(smsRawInbox).where(and(...conditions));
+    // Fetch truly pending entries
+    const pendingConditions: any[] = [eq(smsRawInbox.status, 'pending')];
+    if (configId) pendingConditions.push(eq(smsRawInbox.configId, configId));
+    const pending = await db.select().from(smsRawInbox).where(and(...pendingConditions));
+
+    // Also rescue entries stuck in 'processing' for > 2 min (crashed mid-run)
+    // Reset them back to 'pending' so they can be claimed fresh
+    const stuckCutoff = new Date(Date.now() - 2 * 60 * 1000);
+    const stuckConditions: any[] = [
+      eq(smsRawInbox.status, 'processing'),
+      lte(smsRawInbox.receivedAt, stuckCutoff),
+    ];
+    if (configId) stuckConditions.push(eq(smsRawInbox.configId, configId));
+    const rescued = await db
+      .update(smsRawInbox)
+      .set({ status: 'pending' })
+      .where(and(...stuckConditions))
+      .returning();
+    if (rescued.length > 0) {
+      console.log(`[SMS Processor] Rescued ${rescued.length} stuck 'processing' entries → reset to pending`);
+      pending.push(...rescued);
+    }
 
     let succeeded = 0;
     let failed = 0;

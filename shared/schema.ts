@@ -1078,7 +1078,7 @@ export const smsRawInbox = pgTable("sms_raw_inbox", {
   slug: text("slug").notNull(),
   sender: text("sender"),
   rawMessage: text("raw_message").notNull(),
-  status: text("status").notNull().default("pending"), // pending | done | failed | skipped
+  status: text("status").notNull().default("pending"), // pending | processing | done | failed | skipped
   ruleId: varchar("rule_id"),
   parsedClient: text("parsed_client"),
   parsedAmount: text("parsed_amount"),
