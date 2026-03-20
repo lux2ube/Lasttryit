@@ -13,11 +13,12 @@ export function serveStatic(app: Express) {
     path.join(_projectRoot, "dist", "public"),
     path.join(_serverDir, "public"),
   ];
-  const distPath = candidates.find(fs.existsSync) ?? candidates[0];
-  if (!fs.existsSync(distPath)) {
-    throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
-    );
+  const distPath = candidates.find(fs.existsSync);
+
+  if (!distPath) {
+    // Bridge-only / API-only mode — no frontend build present, skip static serving
+    console.log("[static] No build directory found — running in API-only / bridge mode");
+    return;
   }
 
   app.use(express.static(distPath));

@@ -2,16 +2,21 @@ import { EventEmitter } from "events";
 import { db } from "./db";
 import { notificationQueue, notificationAuditLog } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 
 const BRIDGE_URL = process.env.WA_BRIDGE_URL || "";
 const BRIDGE_API_KEY = process.env.WA_BRIDGE_API_KEY || "";
 
+// Auth session directory (only used in server/Baileys mode on VPS)
+const WA_AUTH_DIR = process.env.WA_AUTH_DIR || "/var/data/wa-auth";
+
 const RATE_LIMIT = {
   DAILY_LIMIT: 200,
   BURST_THRESHOLD: 10,
-  COOLDOWN_AFTER_BURST: 30000,
-  MIN_DELAY_MS: 4000,
-  MAX_DELAY_MS: 9000,
+  COOLDOWN_AFTER_BURST: 30_000,
+  MIN_DELAY_MS: 4_000,
+  MAX_DELAY_MS: 9_000,
 };
 
 // ─── Bridge client helpers (used when WA_BRIDGE_URL is set) ──────────────────
@@ -25,7 +30,7 @@ async function bridgeFetch(path: string, options: { method?: string; body?: any 
       "x-api-key": BRIDGE_API_KEY,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -42,27 +47,82 @@ let baileysQrBase64: string | null = null;
 let baileysStatus: "connected" | "disconnected" | "connecting" | "qr_ready" = "disconnected";
 let baileysLastError: string | null = null;
 let baileysGroups: Map<string, any> = new Map();
+let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getReconnectDelayMs(): number {
+  // Exponential backoff: 5s, 10s, 20s, 40s … capped at 5 minutes + random jitter ±2s
+  const base = Math.min(5_000 * Math.pow(2, reconnectAttempts), 300_000);
+  const jitter = Math.floor(Math.random() * 4_000) - 2_000;
+  return Math.max(5_000, base + jitter);
+}
+
+function clearAuthSession() {
+  try {
+    if (fs.existsSync(WA_AUTH_DIR)) {
+      fs.rmSync(WA_AUTH_DIR, { recursive: true, force: true });
+      console.log("[WhatsApp] Cleared auth session — will show fresh QR on next connect");
+    }
+  } catch (e: any) {
+    console.error("[WhatsApp] Failed to clear auth session:", e.message);
+  }
+}
 
 async function initBaileys() {
   if (baileysStatus === "connecting" || baileysStatus === "connected") return;
 
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
   try {
-    const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } =
-      await import("@whiskeysockets/baileys");
-    const { version } = await fetchLatestBaileysVersion();
+    const {
+      default: makeWASocket,
+      DisconnectReason,
+      useMultiFileAuthState,
+      fetchLatestBaileysVersion,
+      Browsers,
+    } = await import("@whiskeysockets/baileys");
+
+    const pino = (await import("pino")).default;
+
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`[WhatsApp] Baileys v${version.join(".")} — isLatest: ${isLatest}`);
 
     baileysStatus = "connecting";
     baileysLastError = null;
 
-    const { state, saveCreds } = await useMultiFileAuthState("/var/data/wa-auth");
+    const { state, saveCreds } = await useMultiFileAuthState(WA_AUTH_DIR);
 
     const sock = makeWASocket({
       version,
       auth: state,
+
+      // ── Anti-ban: mimic real WhatsApp Web on Chrome ───────────────────────
+      browser: Browsers.appropriate("Chrome"),  // ["macOS", "Chrome", "OS-version"] auto-detected
       printQRInTerminal: false,
-      browser: ["FOMS Bridge", "Chrome", "1.0"],
-      connectTimeoutMs: 30_000,
-      keepAliveIntervalMs: 10_000,
+
+      // ── Connection tuning ─────────────────────────────────────────────────
+      connectTimeoutMs: 60_000,
+      defaultQueryTimeoutMs: 30_000,
+      keepAliveIntervalMs: 25_000,   // WhatsApp Web default is ~30s; slightly shorter is safer
+      retryRequestDelayMs: 2_500,
+      maxMsgRetryCount: 5,
+
+      // ── Privacy & stealth ─────────────────────────────────────────────────
+      markOnlineOnConnect: false,    // Don't broadcast online status when connecting
+      syncFullHistory: false,        // Don't pull full chat history — only recent
+      fireInitQueries: true,
+
+      // ── Performance ───────────────────────────────────────────────────────
+      generateHighQualityLinkPreview: false,
+
+      // ── Prevent "store not found" errors when retrying messages ──────────
+      getMessage: async (_key: any) => ({ conversation: "" }),
+
+      // ── Suppress Baileys' internal verbose logging ────────────────────────
+      logger: pino({ level: "fatal" }),
     });
 
     baileysSocket = sock;
@@ -76,9 +136,14 @@ async function initBaileys() {
         baileysQr = qr;
         baileysStatus = "qr_ready";
         baileysLastError = null;
+        reconnectAttempts = 0; // Reset on fresh QR — connection is progressing
         try {
           const QRCode = (await import("qrcode")).default;
-          baileysQrBase64 = await QRCode.toDataURL(qr);
+          baileysQrBase64 = await QRCode.toDataURL(qr, {
+            width: 280,
+            margin: 2,
+            color: { dark: "#000000", light: "#FFFFFF" },
+          });
         } catch {
           baileysQrBase64 = null;
         }
@@ -90,23 +155,34 @@ async function initBaileys() {
         baileysQr = null;
         baileysQrBase64 = null;
         baileysLastError = null;
-        console.log("[WhatsApp] Connected to WhatsApp");
+        reconnectAttempts = 0;
+        console.log("[WhatsApp] Connected to WhatsApp successfully");
         await refreshGroups();
       }
 
       if (connection === "close") {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const err = lastDisconnect?.error as any;
+        const statusCode: number = err?.output?.statusCode ?? 0;
         const loggedOut = statusCode === DisconnectReason.loggedOut;
-        baileysStatus = "disconnected";
+
         baileysQr = null;
         baileysQrBase64 = null;
-        baileysLastError = `Disconnected (${statusCode ?? "unknown"})`;
-        console.log(`[WhatsApp] Disconnected — statusCode: ${statusCode}, loggedOut: ${loggedOut}`);
-        if (!loggedOut) {
-          console.log("[WhatsApp] Reconnecting in 5s…");
-          setTimeout(() => initBaileys(), 5000);
+        baileysStatus = "disconnected";
+        baileysLastError = `Disconnected (${statusCode || "unknown"})`;
+        baileysSocket = null;
+
+        console.log(`[WhatsApp] Connection closed — statusCode: ${statusCode}, loggedOut: ${loggedOut}`);
+
+        if (loggedOut) {
+          // Fully logged out — clear session so next connect shows a fresh QR
+          console.log("[WhatsApp] Logged out — clearing session for re-pairing");
+          clearAuthSession();
         } else {
-          console.log("[WhatsApp] Logged out — delete /var/data/wa-auth to re-pair");
+          // Network drop or server-side reset — reconnect with backoff
+          reconnectAttempts++;
+          const delay = getReconnectDelayMs();
+          console.log(`[WhatsApp] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})…`);
+          reconnectTimer = setTimeout(() => initBaileys(), delay);
         }
       }
     });
@@ -242,7 +318,7 @@ class WhatsAppService extends EventEmitter {
 
   private startStatusPolling() {
     if (this.statusPollInterval) return;
-    this.statusPollInterval = setInterval(() => this.fetchStatus(), 4000);
+    this.statusPollInterval = setInterval(() => this.fetchStatus(), 4_000);
   }
 
   private stopStatusPolling() {
@@ -255,11 +331,14 @@ class WhatsAppService extends EventEmitter {
   async disconnect() {
     this.stopQueueProcessor();
     if (!this.isClientMode) {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (baileysSocket) {
         await baileysSocket.logout().catch(() => {});
         baileysSocket = null;
       }
       baileysStatus = "disconnected";
+      baileysQr = null;
+      baileysQrBase64 = null;
       return;
     }
     try {
@@ -272,7 +351,13 @@ class WhatsAppService extends EventEmitter {
 
   async reconnect() {
     if (!this.isClientMode) {
-      await this.disconnect();
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (baileysSocket) {
+        await baileysSocket.logout().catch(() => {});
+        baileysSocket = null;
+      }
+      baileysStatus = "disconnected";
+      reconnectAttempts = 0;
       await initBaileys();
       return;
     }
@@ -286,7 +371,7 @@ class WhatsAppService extends EventEmitter {
 
   private startQueueProcessor() {
     if (this.pollInterval) return;
-    this.pollInterval = setInterval(() => this.processQueue(), 5000);
+    this.pollInterval = setInterval(() => this.processQueue(), 5_000);
     console.log("[WhatsApp] Queue processor started (polling every 5s)");
   }
 
@@ -509,7 +594,6 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  // Called by the /api/bridge/send route — sends directly via Baileys (server mode only)
   async sendDirect(groupJid: string, message: string) {
     return baileysSendMessage(groupJid, message);
   }

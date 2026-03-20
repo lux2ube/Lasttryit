@@ -189,13 +189,14 @@ export default function WhatsAppPage() {
   });
 
   const isConnected = waStatus?.status === "connected";
-  const isQrPending = waStatus?.status === "qr_pending";
+  const isQrReady = waStatus?.status === "qr_ready" || waStatus?.status === "qr_pending";
   const isConnecting = waStatus?.status === "connecting";
-  const isDisconnected = waStatus?.status === "disconnected" || waStatus?.status === "logged_out";
+  const isDisconnected = !waStatus || waStatus?.status === "disconnected" || waStatus?.status === "logged_out";
 
   const statusConfig: Record<string, { color: string; bg: string; label: string; icon: any }> = {
     connected:    { color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800", label: "Connected", icon: Wifi },
-    qr_pending:   { color: "text-amber-600",   bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800",     label: "Awaiting QR Scan", icon: QrCode },
+    qr_ready:     { color: "text-amber-600",   bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800",     label: "Scan QR Code", icon: QrCode },
+    qr_pending:   { color: "text-amber-600",   bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800",     label: "Scan QR Code", icon: QrCode },
     connecting:   { color: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800",       label: "Connecting...", icon: Loader2 },
     disconnected: { color: "text-gray-500",    bg: "bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700",         label: "Disconnected", icon: WifiOff },
     logged_out:   { color: "text-red-600",     bg: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",          label: "Logged Out", icon: Power },
@@ -270,7 +271,7 @@ export default function WhatsAppPage() {
               </Button>
             </>
           )}
-          {isQrPending && (
+          {isQrReady && (
             <Button variant="outline" size="sm" onClick={() => disconnectMutation.mutate()} data-testid="button-wa-cancel-connect">
               <XCircle className="w-4 h-4 mr-1.5" /> Cancel
             </Button>
@@ -279,7 +280,7 @@ export default function WhatsAppPage() {
       </div>
 
       {/* QR Code Section */}
-      {isQrPending && waStatus?.qrCode && (
+      {isQrReady && (waStatus?.qrCodeBase64 || waStatus?.qrCode) && (
         <Card className="max-w-lg mx-auto border-amber-200 dark:border-amber-800">
           <CardHeader className="text-center pb-2">
             <CardTitle className="text-lg flex items-center justify-center gap-2">
@@ -425,7 +426,7 @@ export default function WhatsAppPage() {
             </Card>
           )}
 
-          {isDisconnected && !statusLoading && (
+          {isDisconnected && !isQrReady && !statusLoading && (
             <Card className="max-w-lg mx-auto text-center py-12">
               <CardContent className="space-y-4">
                 <WifiOff className="w-12 h-12 text-muted-foreground mx-auto" />
