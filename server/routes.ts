@@ -2187,6 +2187,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(400).json({ message: e.message }); }
   });
 
+  // ─── WHATSAPP BRIDGE ROUTES (machine-to-machine, no session needed) ─────────
+  // Protected by x-api-key === VPS_PASSWORD (shared secret between this app and the VPS).
+  // These routes are called by the remote instance's whatsapp-service to control
+  // the WhatsApp connection on whichever instance has Baileys running.
+  const bridgeApiKey = process.env.WA_BRIDGE_API_KEY || "";
+  function requireBridgeKey(req: Request, res: Response, next: Function) {
+    if (!bridgeApiKey) return res.status(503).json({ error: "Bridge API key not configured on this server" });
+    const provided = (req.headers["x-api-key"] as string) ?? "";
+    if (provided !== bridgeApiKey) return res.status(401).json({ error: "Unauthorized" });
+    next();
+  }
+
+  app.get("/api/bridge/status", requireBridgeKey, async (_req, res) => {
+    res.json(whatsappService.getStatus());
+  });
+  app.post("/api/bridge/connect", requireBridgeKey, async (_req, res) => {
+    try { await whatsappService.initialize(); res.json({ ok: true }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/bridge/disconnect", requireBridgeKey, async (_req, res) => {
+    try { await whatsappService.disconnect(); res.json({ ok: true }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/bridge/reconnect", requireBridgeKey, async (_req, res) => {
+    try { await whatsappService.reconnect(); res.json({ ok: true }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.get("/api/bridge/groups", requireBridgeKey, async (_req, res) => {
+    try { res.json(await whatsappService.getGroups()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/bridge/send", requireBridgeKey, async (req, res) => {
+    try {
+      const { groupJid, message } = req.body as { groupJid: string; message: string };
+      if (!groupJid || !message) return res.status(400).json({ error: "groupJid and message are required" });
+      const result = await whatsappService.sendDirect(groupJid, message);
+      res.json(result ?? { ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─── WHATSAPP NOTIFICATION MANAGEMENT ───────────────────────────────────
 
   app.get("/api/whatsapp/status", requireAuth, async (_req, res) => {

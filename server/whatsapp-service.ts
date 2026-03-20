@@ -14,8 +14,10 @@ const RATE_LIMIT = {
   MAX_DELAY_MS: 9000,
 };
 
+// ─── Bridge client helpers (used when WA_BRIDGE_URL is set) ──────────────────
+
 async function bridgeFetch(path: string, options: { method?: string; body?: any } = {}) {
-  const url = `${BRIDGE_URL}${path}`;
+  const url = `${BRIDGE_URL}/api/bridge${path}`;
   const res = await fetch(url, {
     method: options.method || "GET",
     headers: {
@@ -32,6 +34,143 @@ async function bridgeFetch(path: string, options: { method?: string; body?: any 
   return res.json();
 }
 
+// ─── Baileys-direct implementation (used when WA_BRIDGE_URL is NOT set) ──────
+
+let baileysSocket: any = null;
+let baileysQr: string | null = null;
+let baileysQrBase64: string | null = null;
+let baileysStatus: "connected" | "disconnected" | "connecting" | "qr_ready" = "disconnected";
+let baileysLastError: string | null = null;
+let baileysGroups: Map<string, any> = new Map();
+
+async function initBaileys() {
+  if (baileysStatus === "connecting" || baileysStatus === "connected") return;
+
+  try {
+    const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } =
+      await import("@whiskeysockets/baileys");
+    const { version } = await fetchLatestBaileysVersion();
+
+    baileysStatus = "connecting";
+    baileysLastError = null;
+
+    const { state, saveCreds } = await useMultiFileAuthState("/var/data/wa-auth");
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      browser: ["FOMS Bridge", "Chrome", "1.0"],
+      connectTimeoutMs: 30_000,
+      keepAliveIntervalMs: 10_000,
+    });
+
+    baileysSocket = sock;
+
+    sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("connection.update", async (update: any) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        baileysQr = qr;
+        baileysStatus = "qr_ready";
+        baileysLastError = null;
+        try {
+          const QRCode = (await import("qrcode")).default;
+          baileysQrBase64 = await QRCode.toDataURL(qr);
+        } catch {
+          baileysQrBase64 = null;
+        }
+        console.log("[WhatsApp] QR code ready — waiting for scan");
+      }
+
+      if (connection === "open") {
+        baileysStatus = "connected";
+        baileysQr = null;
+        baileysQrBase64 = null;
+        baileysLastError = null;
+        console.log("[WhatsApp] Connected to WhatsApp");
+        await refreshGroups();
+      }
+
+      if (connection === "close") {
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const loggedOut = statusCode === DisconnectReason.loggedOut;
+        baileysStatus = "disconnected";
+        baileysQr = null;
+        baileysQrBase64 = null;
+        baileysLastError = `Disconnected (${statusCode ?? "unknown"})`;
+        console.log(`[WhatsApp] Disconnected — statusCode: ${statusCode}, loggedOut: ${loggedOut}`);
+        if (!loggedOut) {
+          console.log("[WhatsApp] Reconnecting in 5s…");
+          setTimeout(() => initBaileys(), 5000);
+        } else {
+          console.log("[WhatsApp] Logged out — delete /var/data/wa-auth to re-pair");
+        }
+      }
+    });
+
+    sock.ev.on("groups.upsert", (groups: any[]) => {
+      for (const g of groups) baileysGroups.set(g.id, g);
+    });
+
+    sock.ev.on("groups.update", (updates: any[]) => {
+      for (const u of updates) {
+        const existing = baileysGroups.get(u.id);
+        if (existing) baileysGroups.set(u.id, { ...existing, ...u });
+      }
+    });
+
+  } catch (e: any) {
+    baileysStatus = "disconnected";
+    baileysLastError = e.message;
+    console.error("[WhatsApp] Baileys init error:", e.message);
+  }
+}
+
+async function refreshGroups() {
+  if (!baileysSocket || baileysStatus !== "connected") return;
+  try {
+    const groupData = await baileysSocket.groupFetchAllParticipating();
+    baileysGroups = new Map(Object.entries(groupData));
+    console.log(`[WhatsApp] Loaded ${baileysGroups.size} groups`);
+  } catch (e: any) {
+    console.error("[WhatsApp] Failed to fetch groups:", e.message);
+  }
+}
+
+async function baileysSendMessage(groupJid: string, message: string) {
+  if (!baileysSocket || baileysStatus !== "connected") {
+    throw new Error("WhatsApp not connected");
+  }
+  const jid = groupJid.includes("@") ? groupJid : `${groupJid}@g.us`;
+  const result = await baileysSocket.sendMessage(jid, { text: message });
+  return { wamid: result?.key?.id ?? null };
+}
+
+function getBaileysStatus() {
+  return {
+    status: baileysStatus,
+    qrCode: baileysQr,
+    qrCodeBase64: baileysQrBase64,
+    lastError: baileysLastError,
+    groupCount: baileysGroups.size,
+    dailyMessageCount: 0,
+    dailyLimit: RATE_LIMIT.DAILY_LIMIT,
+  };
+}
+
+function getBaileysGroups(): Array<{ id: string; subject: string; participants: number }> {
+  return Array.from(baileysGroups.values()).map((g: any) => ({
+    id: g.id,
+    subject: g.subject ?? g.id,
+    participants: g.participants?.length ?? 0,
+  }));
+}
+
+// ─── WhatsApp Service (unified) ───────────────────────────────────────────────
+
 class WhatsAppService extends EventEmitter {
   private isProcessing = false;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -41,7 +180,10 @@ class WhatsAppService extends EventEmitter {
   private cachedStatus: any = null;
   private statusPollInterval: ReturnType<typeof setInterval> | null = null;
 
+  private get isClientMode() { return !!BRIDGE_URL; }
+
   getStatus() {
+    if (!this.isClientMode) return getBaileysStatus();
     return this.cachedStatus || {
       status: "disconnected",
       qrCode: null,
@@ -53,15 +195,8 @@ class WhatsAppService extends EventEmitter {
   }
 
   async fetchStatus() {
-    if (!BRIDGE_URL) {
-      this.cachedStatus = {
-        status: "disconnected",
-        qrCode: null,
-        qrCodeBase64: null,
-        lastError: "WA_BRIDGE_URL not configured",
-        dailyMessageCount: 0,
-        dailyLimit: RATE_LIMIT.DAILY_LIMIT,
-      };
+    if (!this.isClientMode) {
+      this.cachedStatus = getBaileysStatus();
       return this.cachedStatus;
     }
     try {
@@ -88,12 +223,19 @@ class WhatsAppService extends EventEmitter {
   }
 
   async initialize() {
-    console.log(`[WhatsApp] Bridge mode — connecting to ${BRIDGE_URL}`);
+    if (!this.isClientMode) {
+      console.log("[WhatsApp] Server mode — starting Baileys directly");
+      await initBaileys();
+      this.startQueueProcessor();
+      this.startStatusPolling();
+      return;
+    }
+    console.log(`[WhatsApp] Client mode — connecting to bridge at ${BRIDGE_URL}`);
     this.startStatusPolling();
     try {
       await bridgeFetch("/connect", { method: "POST" });
     } catch (e: any) {
-      console.log(`[WhatsApp] Bridge connect call failed (may need security group port open): ${e.message}`);
+      console.log(`[WhatsApp] Bridge connect call failed: ${e.message}`);
     }
     await this.fetchStatus();
   }
@@ -112,6 +254,14 @@ class WhatsAppService extends EventEmitter {
 
   async disconnect() {
     this.stopQueueProcessor();
+    if (!this.isClientMode) {
+      if (baileysSocket) {
+        await baileysSocket.logout().catch(() => {});
+        baileysSocket = null;
+      }
+      baileysStatus = "disconnected";
+      return;
+    }
     try {
       await bridgeFetch("/disconnect", { method: "POST" });
     } catch (e: any) {
@@ -121,6 +271,11 @@ class WhatsAppService extends EventEmitter {
   }
 
   async reconnect() {
+    if (!this.isClientMode) {
+      await this.disconnect();
+      await initBaileys();
+      return;
+    }
     try {
       await bridgeFetch("/reconnect", { method: "POST" });
     } catch (e: any) {
@@ -220,12 +375,18 @@ class WhatsAppService extends EventEmitter {
     const message = this.formatInvoiceMessage(payload);
 
     try {
-      const result = await bridgeFetch("/send", {
-        method: "POST",
-        body: { groupJid, message },
-      });
+      let wamid: string | null = null;
 
-      const wamid = result.wamid ?? null;
+      if (this.isClientMode) {
+        const result = await bridgeFetch("/send", {
+          method: "POST",
+          body: { groupJid, message },
+        });
+        wamid = result.wamid ?? null;
+      } else {
+        const result = await baileysSendMessage(groupJid, message);
+        wamid = result.wamid ?? null;
+      }
 
       await db.update(notificationQueue)
         .set({
@@ -310,37 +471,20 @@ class WhatsAppService extends EventEmitter {
       `📋 *رقم العملية:* ${p.recordNumber}`,
     ];
 
-    if (p.providerName) {
-      lines.push(`🏦 *المزود:* ${p.providerName}`);
-    }
-
-    if (p.serviceFeeUsd && parseFloat(p.serviceFeeUsd) > 0) {
-      lines.push(`💳 *رسوم الخدمة:* $${formatAmount(p.serviceFeeUsd)}`);
-    }
-    if (p.networkFeeUsd && parseFloat(p.networkFeeUsd) > 0) {
-      lines.push(`🔗 *رسوم الشبكة:* $${formatAmount(p.networkFeeUsd)}`);
-    }
+    if (p.providerName) lines.push(`🏦 *المزود:* ${p.providerName}`);
+    if (p.serviceFeeUsd && parseFloat(p.serviceFeeUsd) > 0) lines.push(`💳 *رسوم الخدمة:* $${formatAmount(p.serviceFeeUsd)}`);
+    if (p.networkFeeUsd && parseFloat(p.networkFeeUsd) > 0) lines.push(`🔗 *رسوم الشبكة:* $${formatAmount(p.networkFeeUsd)}`);
 
     lines.push(``, `📝 *تفاصيل العملية:*`);
 
-    if (p.clientSenderName) {
-      lines.push(`👤 *المرسل:* ${p.clientSenderName}`);
-    }
-    if (p.clientRecipientName) {
-      lines.push(`👤 *المستلم:* ${p.clientRecipientName}`);
-    }
-    if (p.txidOrReferenceNumber) {
-      lines.push(`🔑 *رقم المرجع:* ${p.txidOrReferenceNumber}`);
-    }
-    if (p.networkOrId) {
-      lines.push(`📍 *العنوان/المعرف:* ${p.networkOrId}`);
-    }
+    if (p.clientSenderName) lines.push(`👤 *المرسل:* ${p.clientSenderName}`);
+    if (p.clientRecipientName) lines.push(`👤 *المستلم:* ${p.clientRecipientName}`);
+    if (p.txidOrReferenceNumber) lines.push(`🔑 *رقم المرجع:* ${p.txidOrReferenceNumber}`);
+    if (p.networkOrId) lines.push(`📍 *العنوان/المعرف:* ${p.networkOrId}`);
 
     lines.push(`📅 *التاريخ:* ${p.confirmedAt}`);
 
-    if (p.manualNotes) {
-      lines.push(`📌 *ملاحظات:* ${p.manualNotes}`);
-    }
+    if (p.manualNotes) lines.push(`📌 *ملاحظات:* ${p.manualNotes}`);
 
     lines.push(
       ``,
@@ -353,12 +497,21 @@ class WhatsAppService extends EventEmitter {
   }
 
   async getGroups(): Promise<Array<{ id: string; subject: string; participants: number }>> {
+    if (!this.isClientMode) {
+      await refreshGroups();
+      return getBaileysGroups();
+    }
     try {
       return await bridgeFetch("/groups");
     } catch (err: any) {
       console.error("[WhatsApp] Failed to fetch groups via bridge:", err.message);
       return [];
     }
+  }
+
+  // Called by the /api/bridge/send route — sends directly via Baileys (server mode only)
+  async sendDirect(groupJid: string, message: string) {
+    return baileysSendMessage(groupJid, message);
   }
 
   async enqueueRecordNotification(record: Record<string, any>, customer: Record<string, any>) {
@@ -424,4 +577,6 @@ if (BRIDGE_URL) {
   whatsappService.initialize().catch((e) => {
     console.error(`[WhatsApp] Auto-init failed: ${e.message}`);
   });
+} else {
+  console.log("[WhatsApp] No WA_BRIDGE_URL set — Baileys server mode will be used when connect is called");
 }

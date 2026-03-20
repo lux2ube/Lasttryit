@@ -1,9 +1,19 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+// __dirname = .../server/ → project root is one level up
+const _serverDir = path.dirname(fileURLToPath(import.meta.url));
+const _projectRoot = path.resolve(_serverDir, "..");
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "public");
+  // Support both tsx (source) and built (dist/index.cjs) layouts
+  const candidates = [
+    path.join(_projectRoot, "dist", "public"),
+    path.join(_serverDir, "public"),
+  ];
+  const distPath = candidates.find(fs.existsSync) ?? candidates[0];
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`,
