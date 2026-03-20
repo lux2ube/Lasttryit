@@ -85,7 +85,7 @@ function extractBetween(text: string, afterStr: string, beforeStr: string): stri
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   const PgSession = connectPgSimple(session);
   const pool = new Pool({
-    connectionString: process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL,
     max: 2,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
@@ -564,9 +564,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── PUBLIC CONFIG (authenticated) — safe public-side credentials ──────────
   app.get("/api/public-config", requireAuth, (_req, res) => {
     res.json({
-      supabaseProjectId: "rhdcobxxezxwesksnbrt",
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
-      supabaseRestUrl: `https://rhdcobxxezxwesksnbrt.supabase.co/rest/v1`,
       smsWebhookSecret: process.env.SMS_WEBHOOK_SECRET ?? "",
     });
   });
@@ -1550,6 +1547,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Register for both POST and GET so Forward SMS app works without body template
   app.post("/api/webhooks/sms/:slug", _smsWebhookHandler);
   app.get("/api/webhooks/sms/:slug", _smsWebhookHandler);
+
+  // ─── SMS INGEST (replaces Supabase Edge Function) ─────────────────────────
+  // Accepts GET ?secret=…&slug=…&message=…&sender=… (same params as the old edge fn)
+  app.get("/api/sms-ingest", async (req: any, res: any) => {
+    const secret = (req.query.secret as string)?.trim();
+    const expectedSecret = process.env.SMS_WEBHOOK_SECRET;
+    if (!expectedSecret || secret !== expectedSecret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const slug = (req.query.slug as string)?.trim();
+    if (!slug) return res.status(400).json({ error: "Missing ?slug= parameter" });
+    // Reuse the slug-based handler by faking params
+    req.params = { slug };
+    return _smsWebhookHandler(req, res);
+  });
 
   // ─── SMS RAW INBOX API ────────────────────────────────────────────────────
   app.get("/api/sms-raw-inbox", requireAuth, async (req, res) => {
