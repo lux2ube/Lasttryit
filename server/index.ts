@@ -74,6 +74,10 @@ app.use((req, res, next) => {
   const { detectOrphanRecords } = await import("./financial-engine");
   setInterval(() => detectOrphanRecords().catch(e => console.error("[Orphan Detector]", e.message)), 15 * 60 * 1000);
 
+  // SMS Auto-Processor — picks up pending inbox SMS every 60s and converts to records
+  const { startSmsProcessor } = await import("./sms-processor");
+  startSmsProcessor(60_000);
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     console.error("Internal Server Error:", err);

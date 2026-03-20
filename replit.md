@@ -39,14 +39,18 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - `sms_webhook_configs` — Dynamic SMS endpoint configs: slug (unique URL path), accountId/accountName (CoA asset account), currency, isActive
 - `sms_parsing_rules` — Per-config extraction rules: clientAfterString/clientBeforeString + amountAfterString/amountBeforeString + direction (inflow/outflow), sortOrder for priority
 - `sms_webhook_logs` — Audit trail for every SMS hit: raw message, parsed fields, match result, generated record ID, status (success/parse_failed/error)
-- `sms_raw_inbox` — Store-first SMS messages from Forward SMS app; processed separately via `/api/sms-raw-inbox/process`
+- `sms_raw_inbox` — Store-first SMS messages from Post SMS Forward app; auto-processed every 60s by `server/sms-processor.ts`
 - `notification_queue` — PostgreSQL-backed job queue for WhatsApp group notifications. Status: queued→processing→sent/failed/dead. 5 retry attempts with exponential backoff
 - `notification_audit_log` — Immutable delivery audit trail linking recordId, wamid, deliveryStatus, payloadSnapshot
 
-**WhatsApp Notification System (EC2 Bridge Architecture)**
-- Bridge server: EC2 instance runs `whatsapp-web.js` + Chromium, managed by PM2 (`wa-bridge` process), auto-starts on reboot
-- Bridge API: port 3078, authenticated via `x-api-key` header. Endpoints: `/status`, `/connect`, `/disconnect`, `/reconnect`, `/groups`, `/send`, `/health`
-- FOMS proxy: `server/whatsapp-service.ts` — calls EC2 bridge via HTTP instead of running Baileys locally (Replit blocks WhatsApp WebSocket connections)
+**WhatsApp Notification System + SMS Receiver (VPS Bridge Architecture)**
+- Bridge server: VPS at 209.127.27.2, runs Baileys (Node.js) managed by PM2 (`wa-bridge` process), port 3078
+- WhatsApp 24/7 stability: VPS auto-starts Baileys from saved session (`/var/data/wa-auth`) on every restart — no QR rescan needed
+- Replit startup: checks VPS status first — skips `/connect` call if VPS is already `connected`, preventing session interruption on deployment
+- Bridge API: authenticated via `x-api-key` (`WA_BRIDGE_API_KEY`). Key endpoints: `/api/bridge/status`, `/connect`, `/disconnect`, `/groups`, `/send`
+- SMS receiver: `POST /api/webhooks/sms/:slug` on VPS (port 3078) — **Post SMS Forward app** sends to `http://209.127.27.2:3078/api/webhooks/sms/{slug}?message={body}&time={local-time}`. No auth on endpoint — slug acts as token
+- SMS auto-processor: `server/sms-processor.ts` runs every 60s on both Replit and VPS — picks up `pending` inbox entries and converts to records using parsing rules
+- Duplicate prevention: idempotency check before WhatsApp send (checks audit log); `nextRetryAt` cleared on success; stuck `processing` jobs reset after 2 min
 - Env vars: `WA_BRIDGE_URL`, `WA_BRIDGE_API_KEY` (both stored in Secrets, no hardcoded values)
 - AWS requirement: EC2 Security Group must allow inbound TCP port 3078 from Replit IPs
 - QR code: bridge generates base64 data URL via `qrcode` npm package, displayed in FOMS UI (`client/src/pages/whatsapp.tsx`)

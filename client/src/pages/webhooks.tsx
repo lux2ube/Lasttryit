@@ -194,6 +194,25 @@ export default function Webhooks() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const { data: processorStatus, refetch: refetchProcessor } = useQuery<{
+    totalRuns: number; totalProcessed: number; totalSucceeded: number; totalFailed: number;
+    lastRunAt: string | null; lastRunResult: { processed: number; succeeded: number; failed: number } | null;
+    nextRunAt: string | null; isRunning: boolean;
+  }>({
+    queryKey: ["/api/sms-processor/status"],
+    refetchInterval: 15_000,
+  });
+
+  const runNowMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sms-processor/run-now", {}),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-raw-inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-processor/status"] });
+      toast({ title: `Processor ran — ${data.processed ?? 0} processed, ${data.succeeded ?? 0} succeeded` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const pendingCount = inboxEntries?.filter(e => e.status === "pending").length ?? 0;
   const filteredInbox = inboxEntries?.filter(e => inboxFilter === "all" || e.status === inboxFilter) ?? [];
 
@@ -205,11 +224,9 @@ export default function Webhooks() {
     queryKey: ["/api/public-config"],
   });
 
-  const secret = publicConfig?.smsWebhookSecret ?? "";
-  const edgeFnUrl = (slug: string) =>
-    secret
-      ? `/api/sms-ingest?secret=${secret}&slug=${slug}&message={body}&sender={sender}`
-      : "loading…";
+  const VPS_HOST = "http://209.127.27.2:3078";
+  const vpsUrl = (slug: string) => `${VPS_HOST}/api/webhooks/sms/${slug}?message={body}&time={local-time}`;
+  const edgeFnUrl = vpsUrl;
 
   // Config CRUD mutations
   const createConfigMutation = useMutation({
@@ -498,11 +515,11 @@ export default function Webhooks() {
                   <div>
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <Inbox className="w-4 h-4 text-primary" />
-                      Forward SMS → Supabase Edge Function
+                      Forward SMS → VPS Bridge (24/7)
                       <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">GET · No headers · No body</Badge>
                     </CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Paste the URL into Forward SMS. Set method to <strong>GET</strong>. Leave headers and body completely empty.
+                      Paste the URL into <strong>Post SMS Forward</strong>. Set method to <strong>GET</strong>. Leave headers and body empty. The VPS runs 24/7 and auto-processes SMS into records every 60 seconds.
                     </p>
                   </div>
                   <Badge variant="outline" className="text-xs font-mono shrink-0">{selectedConfig.slug}</Badge>
@@ -512,13 +529,17 @@ export default function Webhooks() {
 
                 {/* Architecture flow */}
                 <div className="flex items-center gap-1.5 text-[11px] py-3 flex-wrap">
-                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">📱 Phone</span>
+                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">📱 Phone (SMS)</span>
                   <span className="text-slate-400">→</span>
-                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">Forward SMS App</span>
+                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">Post SMS Forward</span>
                   <span className="text-slate-400">→</span>
-                  <span className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 px-2 py-1 rounded font-medium text-emerald-800 dark:text-emerald-300">Supabase Edge Function</span>
+                  <span className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 px-2 py-1 rounded font-medium text-emerald-800 dark:text-emerald-300">🖥 VPS Bridge (24/7)</span>
                   <span className="text-slate-400">→</span>
                   <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">sms_raw_inbox</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 px-2 py-1 rounded font-medium text-blue-800 dark:text-blue-300">⚡ Auto-Processor (60s)</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-medium">📋 Records</span>
                 </div>
 
                 <Separator />
@@ -546,7 +567,7 @@ export default function Webhooks() {
                         </Button>
                       </div>
                       <div className="text-[11px] text-muted-foreground bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded px-2.5 py-1.5">
-                        <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{sender}"}</code> are Forward SMS built-in variables — filled automatically from the SMS. Only <code className="font-mono">slug=</code> changes per endpoint.
+                        <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{local-time}"}</code> are <strong>Post SMS Forward</strong> built-in variables — automatically replaced by the app with the SMS text and timestamp. Copy the URL as-is.
                       </div>
                     </div>
                   </div>
@@ -729,7 +750,7 @@ export default function Webhooks() {
                   <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
                     <p className="text-xs font-semibold flex items-center gap-2 text-foreground">
                       <Inbox className="w-3.5 h-3.5 text-primary" />
-                      Forward SMS → Supabase Edge Function
+                      Post SMS Forward → VPS Bridge (24/7)
                     </p>
                     <div className="flex items-center gap-2">
                       <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-0 font-normal">GET · No headers · No body</Badge>
@@ -763,7 +784,7 @@ export default function Webhooks() {
                       <span className="text-muted-foreground italic">Leave empty</span>
                     </div>
                     <div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50/60 dark:bg-amber-900/20">
-                      <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{sender}"}</code> are filled automatically by Forward SMS. Only <code className="font-mono">slug=</code> changes per endpoint.
+                      <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{local-time}"}</code> are Post SMS Forward built-in variables — filled automatically. Only the slug in the URL changes per endpoint.
                     </div>
                   </div>
                 </div>
@@ -834,6 +855,44 @@ export default function Webhooks() {
 
         {/* ── INBOX TAB ───────────────────────────────────────────────────────── */}
         <TabsContent value="inbox" className="space-y-4 mt-4">
+          {/* Auto-Processor Status Banner */}
+          <div className={`rounded-lg border px-4 py-3 flex items-center justify-between gap-4 text-xs ${
+            processorStatus?.isRunning
+              ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700"
+              : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
+          }`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-2 h-2 rounded-full shrink-0 ${processorStatus?.isRunning ? "bg-blue-500 animate-pulse" : "bg-emerald-500"}`} />
+              <div className="min-w-0">
+                <span className="font-semibold text-foreground">Auto-Processor</span>
+                <span className="text-muted-foreground ml-2">
+                  {processorStatus?.isRunning
+                    ? "Running now…"
+                    : processorStatus?.lastRunAt
+                      ? `Last run: ${new Date(processorStatus.lastRunAt).toLocaleTimeString()} · ${processorStatus.lastRunResult?.processed ?? 0} processed`
+                      : "Starting soon…"}
+                </span>
+                {processorStatus && processorStatus.totalRuns > 0 && (
+                  <span className="text-muted-foreground ml-3">
+                    Total: {processorStatus.totalSucceeded} succeeded · {processorStatus.totalFailed} failed
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={runNowMutation.isPending || processorStatus?.isRunning}
+              onClick={() => runNowMutation.mutate()}
+              data-testid="button-run-processor-now"
+              className="shrink-0"
+            >
+              {runNowMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Play className="w-3.5 h-3.5 mr-1.5" />}
+              Run Now
+            </Button>
+          </div>
+
           {/* Stats row */}
           <div className="grid grid-cols-4 gap-3">
             {[

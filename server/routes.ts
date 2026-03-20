@@ -1602,6 +1602,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ─── SMS PROCESSOR STATUS ──────────────────────────────────────────────────
+  app.get("/api/sms-processor/status", requireAuth, async (_req, res) => {
+    try {
+      const { getSmsProcessorStats } = await import("./sms-processor");
+      res.json(getSmsProcessorStats());
+    } catch {
+      res.json({ totalRuns: 0, totalProcessed: 0, totalSucceeded: 0, totalFailed: 0, lastRunAt: null, lastRunResult: null, nextRunAt: null, isRunning: false });
+    }
+  });
+
+  app.post("/api/sms-processor/run-now", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (_req, res) => {
+    try {
+      const { triggerSmsProcessorNow } = await import("./sms-processor");
+      const result = await triggerSmsProcessorNow();
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // Legacy compat: plain /api/webhooks/sms (no slug) — uses message + bankId
   app.post("/api/webhooks/sms", async (req, res) => {
     try {
