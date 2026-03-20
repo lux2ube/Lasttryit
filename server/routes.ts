@@ -86,8 +86,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const PgSession = connectPgSimple(session);
   const pool = new Pool({
     connectionString: process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL,
-    max: 3,
-    idleTimeoutMillis: 30000,
+    max: 2,
+    idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
   });
 

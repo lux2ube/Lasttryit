@@ -2296,15 +2296,20 @@ export class DatabaseStorage implements IStorage {
 
     if (rec.type === 'cash') {
       if (rec.direction === 'inflow') {
-        const customerNetUsd = amount / execBuyRate;
-        // Exact spread: bank proceeds minus customer credit (no artificial minimum — exact rate difference)
-        const spreadUsd      = Math.max(0, suspenseAmount - customerNetUsd);
-        const customerActual = Math.max(0, suspenseAmount - spreadUsd);
+        // Customer always receives exactly what the exec rate promises
+        const customerActual = amount / execBuyRate;
+        // Spread = bank proceeds − customer credit (positive = profit, negative = loss)
+        const spreadUsd      = suspenseAmount - customerActual;
         projectedProfit = spreadUsd;
         feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: customerActual };
 
         addLine('2101', 'Customer Credits - Unmatched',
           suspenseAmount, 0, `[CONFIRM-CLR] Clear suspense — ${ref}`);
+        if (spreadUsd < -0.0001) {
+          // Negative spread: exec rate is more favorable to customer than bank rate → loss
+          addLine('4201', 'FX Spread Income', Math.abs(spreadUsd), 0,
+            `[P&L] FX spread loss (bank ${acctBuyRate} vs exec ${execBuyRate}) — ${ref}`);
+        }
         addLine(customerAcctCode, customerAcctName,
           0, customerActual, `[CONFIRM] Net to customer (exec rate ${execBuyRate} ${acctCurrency}/$) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
@@ -2313,21 +2318,26 @@ export class DatabaseStorage implements IStorage {
             `[P&L] FX spread (bank ${acctBuyRate} vs exec ${execBuyRate}) — ${ref}`);
         }
       } else {
+        // Customer is always charged exactly what the exec rate dictates
         const customerChargeUsd = amount / execSellRate;
-        // Exact spread: client charge minus bank cost (no artificial minimum — exact rate difference)
-        const spreadUsd         = Math.max(0, customerChargeUsd - suspenseAmount);
-        const adjustedCharge    = suspenseAmount + spreadUsd;
+        // Spread = client charge − bank cost (positive = profit, negative = loss)
+        const spreadUsd         = customerChargeUsd - suspenseAmount;
         projectedProfit = spreadUsd;
-        feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: adjustedCharge };
+        feeBreakdown = { principalUsd: suspenseAmount, serviceFeeUsd: 0, networkFeeUsd: 0, effectiveFeeRate: 0, spreadUsd, spreadRate: suspenseAmount > 0 ? (spreadUsd / suspenseAmount) * 100 : 0, clientLiabilityUsd: customerChargeUsd };
 
         addLine(customerAcctCode, customerAcctName,
-          adjustedCharge, 0, `[CONFIRM] Customer charge (exec rate ${execSellRate} ${acctCurrency}/$) — ${ref} | ${custName}`,
+          customerChargeUsd, 0, `[CONFIRM] Customer charge (exec rate ${execSellRate} ${acctCurrency}/$) — ${ref} | ${custName}`,
           rec.customerId ?? undefined, custName);
         addLine('2101', 'Customer Credits - Unmatched',
           0, suspenseAmount, `[CONFIRM-CLR] Clear suspense — ${ref}`);
         if (spreadUsd > 0.0001) {
           addLine('4201', 'FX Spread Income', 0, spreadUsd,
             `[P&L] FX spread (exec ${execSellRate} vs bank ${acctSellRate}) — ${ref}`);
+        }
+        if (spreadUsd < -0.0001) {
+          // Negative spread: exec rate is more favorable to customer than bank rate → loss
+          addLine('4201', 'FX Spread Income', Math.abs(spreadUsd), 0,
+            `[P&L] FX spread loss (exec ${execSellRate} vs bank ${acctSellRate}) — ${ref}`);
         }
       }
     } else {

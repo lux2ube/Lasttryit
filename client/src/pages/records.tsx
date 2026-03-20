@@ -253,7 +253,7 @@ function RecordDetailDialog({
       ["System Rate", (record as any).sellRate ? `${parseFloat((record as any).sellRate).toLocaleString()} ${record.currency}/USD` : null] as [string, string | null],
     ]),
     // Spread fee = USD difference between bank rate and system rate (shown only when confirmed and set)
-    ["Spread Fee", (record as any).spreadUsd ? `$${parseFloat((record as any).spreadUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (FX spread income · 4201)` : null],
+    ["Spread Fee", (record as any).spreadUsd && parseFloat((record as any).spreadUsd) !== 0 ? `${parseFloat((record as any).spreadUsd) < 0 ? '-' : ''}$${Math.abs(parseFloat((record as any).spreadUsd)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (FX spread ${parseFloat((record as any).spreadUsd) < 0 ? 'loss' : 'income'} · 4201)` : null],
     ["Supplier Expense", (record as any).expenseUsd && parseFloat((record as any).expenseUsd) > 0 ? `$${parseFloat((record as any).expenseUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cost · 5201)` : null],
     ["DR Account", record.direction === "inflow" ? record.accountName : record.contraAccountName],
     ["CR Account", record.direction === "inflow" ? record.contraAccountName : record.accountName],
