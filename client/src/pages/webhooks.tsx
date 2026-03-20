@@ -225,7 +225,7 @@ export default function Webhooks() {
   });
 
   const VPS_HOST = "http://209.127.27.2:3078";
-  const vpsUrl = (slug: string) => `${VPS_HOST}/api/webhooks/sms/${slug}?message={body}&time={local-time}`;
+  const vpsUrl = (slug: string) => `${VPS_HOST}/api/webhooks/sms/${slug}?message={msg}&sender={from}&time={local-time}`;
   const edgeFnUrl = vpsUrl;
 
   // Config CRUD mutations
@@ -567,7 +567,7 @@ export default function Webhooks() {
                         </Button>
                       </div>
                       <div className="text-[11px] text-muted-foreground bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded px-2.5 py-1.5">
-                        <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{local-time}"}</code> are <strong>Post SMS Forward</strong> built-in variables — automatically replaced by the app with the SMS text and timestamp. Copy the URL as-is.
+                        <code className="font-mono">{"{msg}"}</code>, <code className="font-mono">{"{from}"}</code>, and <code className="font-mono">{"{local-time}"}</code> are <strong>Forward SMS</strong> app variables — automatically replaced with the SMS text, sender number, and timestamp. Copy the URL as-is.
                       </div>
                     </div>
                   </div>
@@ -784,7 +784,7 @@ export default function Webhooks() {
                       <span className="text-muted-foreground italic">Leave empty</span>
                     </div>
                     <div className="px-4 py-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50/60 dark:bg-amber-900/20">
-                      <code className="font-mono">{"{body}"}</code> and <code className="font-mono">{"{local-time}"}</code> are Post SMS Forward built-in variables — filled automatically. Only the slug in the URL changes per endpoint.
+                      <code className="font-mono">{"{msg}"}</code>, <code className="font-mono">{"{from}"}</code>, and <code className="font-mono">{"{local-time}"}</code> are Forward SMS app variables — filled automatically. Only the slug changes per endpoint.
                     </div>
                   </div>
                 </div>

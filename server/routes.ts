@@ -1499,13 +1499,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     // Detect unsubstituted template placeholders — the app sent the variable name literally
-    // e.g. Forward SMS uses {msg}; if the body template was wrong they arrive as literal text
-    const PLACEHOLDER_PATTERN = /^(\{msg\}|%message%|%msg%|\{message\}|\$message\$|\[message\]|\[msg\])$/i;
+    // e.g. Forward SMS uses {msg}, Post SMS Forward uses {body} — if wrong they arrive as literal text
+    const PLACEHOLDER_PATTERN = /^(\{msg\}|\{body\}|%message%|%msg%|\{message\}|\$message\$|\[message\]|\[msg\])$/i;
     if (PLACEHOLDER_PATTERN.test(smsText)) {
       return res.status(422).json({
         message: "Received a template placeholder instead of real SMS content",
         received: smsText,
-        fix: 'In Forward SMS app, set body to: {"message": "{msg}"}  — the app variable is {msg} (curly braces, not percent signs)',
+        fix: 'In Forward SMS app, use URL: ?message={msg}&sender={from}&time={local-time}  — {msg} is the SMS body variable (not {body})',
       });
     }
 
@@ -1528,7 +1528,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Stored in the `sender` column for DB compat — displayed as "Forwarded At" in the UI
       const b = (typeof req.body === "object" && req.body !== null) ? req.body as Record<string, any> : {};
       const q2 = req.query as any;
+      // Prefer sender phone number; fall back to forwarded timestamp
       const senderValue =
+        q2.sender ?? q2.from ?? q2.phone ?? q2.number ??
+        b.sender ?? b.from ?? b.phone ??
         q2.time ?? q2["local-time"] ?? q2.local_time ?? q2.localtime ??
         b.time ?? b["local-time"] ?? b.local_time ?? undefined;
       // Store to inbox regardless — even if config is unknown, we save it for review
