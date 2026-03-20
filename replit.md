@@ -57,7 +57,8 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - Architecture doc: `docs/whatsapp-notification-architecture.md`
 
 **Fee & Income Policy**
-- Minimum $1 USD floor on ALL income: if a calculated fee (crypto service fee) or spread (cash FX spread) is >$0 but <$1, it's bumped to $1. Zero fees remain zero. Constants: `MIN_INCOME_USD = 1.0` in `server/storage.ts` (confirm flow), `MIN_SEND_FEE_USD = 1.0` in `server/routes.ts` (send crypto preview/execute), `MIN_FEE_USD = 1.0` in `client/src/pages/records.tsx` (fee breakdown preview)
+- **Cash FX spread**: exact rate-difference only — `spreadUsd = max(0, bankProceeds − clientCredit)`. No minimum floor. Zero spread when rates are equal. `MIN_INCOME_USD` no longer applied to cash spread.
+- **Crypto service fee**: $1 USD minimum floor still applies — if fee is >$0 but <$1, it's bumped to $1. Zero fees remain zero. Constants: `MIN_INCOME_USD = 1.0` in `server/storage.ts` (confirm flow), `MIN_SEND_FEE_USD = 1.0` in `server/routes.ts` (send crypto preview/execute), `MIN_FEE_USD = 1.0` in `client/src/pages/records.tsx` (crypto fee breakdown preview only)
 - Network fee (gas) is always fetched from the `crypto_networks` table via provider's `networkId` FK — NOT from the legacy `provider.networkFeeUsd` field (which is only a seed-time snapshot). Both the send crypto routes and the record form fee breakdown look up the network table.
 
 **Kuraimi ePay Integration**
