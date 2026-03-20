@@ -2937,84 +2937,167 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Customer Auto-Matching Engine ────────────────────────────────────────
-  // Evaluation order (returns first match found):
-  //   1. Exact: firstName AND lastName
-  //   2. Fuzzy: fullName contains the query (or query contains a significant part)
-  //   3. Exact: phone number match (primary or secondary)
-  //   4. OR:   partial name OR phone
-  //   5. OR:   fullName OR partial name
+  // Scoring rules (all candidates scored, best wins — with ambiguity check):
+  //   P1: Exact/suffix phone match             → 100 / 92
+  //   N1: Exact normalized full name           → 100
+  //   N2: Linear contiguous token subsequence → 95  (handles front-truncated names)
+  //   N3: firstName + lastName both present   → 88
+  //   N4: All input tokens found in cust name → 80
+  //   N5: Weighted partial (≥2 tokens, ≥60%)  → 55–69
+  //   Ambiguity guard: top–second < 15pts → return null (human review)
+  //   Minimum score for auto-assign: 70
   async autoMatchCustomer(clientString: string): Promise<{ customer: Customer; method: string; score: number } | null> {
     if (!clientString || clientString.trim().length < 2) return null;
     const input = clientString.trim();
-    const inputLower = input.toLowerCase();
-    const inputParts = inputLower.split(/\s+/).filter(p => p.length >= 2);
+
+    // ── Arabic normalization ───────────────────────────────────────────────────
+    // Strips diacritics, unifies alef/ya/ta-marbuta variants so DB name and SMS
+    // name compare correctly regardless of how the bank encoded them.
+    const norm = (s: string) =>
+      s.trim()
+        .replace(/[\u064B-\u065F\u0670\u0640]/g, '') // strip harakat + tatweel
+        .replace(/[أإآٱ]/g, 'ا')                     // alef variants → plain alef
+        .replace(/ة/g, 'ه')                           // ta marbuta → ha
+        .replace(/ى/g, 'ي')                           // alef maqsura → ya
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .trim();
+
+    const normalizePhone = (p: string) => p.replace(/\D/g, '');
+
+    const inputNorm = norm(input);
+    // Qualified name tokens: normalized, ≥3 chars, excludes pure-digit tokens
+    const inputTokens = inputNorm.split(/\s+/).filter(t => t.length >= 3 && !/^\d+$/.test(t));
+
+    // Extract any phone number embedded in the input (Yemeni numbers: 7xxxxxxxx or 9677xxxxxxxx)
+    const phoneMatch = input.match(/(?:\+?967\s*)?([7][0-9]{8})/);
+    const embeddedPhone = phoneMatch ? normalizePhone(phoneMatch[0]) : null;
+    const bareInput = normalizePhone(input);
+    const isPhoneOnly = /^\d{7,}$/.test(bareInput) && inputTokens.length === 0;
 
     const allCustomers = await db.select().from(customers)
       .where(eq(customers.customerStatus, 'active'));
     if (allCustomers.length === 0) return null;
 
-    const normalizePhone = (p: string) => p.replace(/[^\d+]/g, '');
-    const inputPhone = normalizePhone(input);
-    const isPhoneInput = /^\+?\d{7,}$/.test(inputPhone);
+    // ── Score every customer ────────────────────────────────────────────────────
+    interface Candidate { customer: Customer; score: number; method: string; }
+    const candidates: Candidate[] = [];
 
-    // Rule 1: Exact match — firstName AND lastName
     for (const c of allCustomers) {
-      const fn = (c.firstName ?? '').toLowerCase().trim();
-      const ln = (c.lastName ?? '').toLowerCase().trim();
-      if (fn && ln && inputParts.length >= 2) {
-        if (inputParts.includes(fn) && inputParts.includes(ln)) {
-          return { customer: c, method: 'exact_first_last', score: 100 };
+      const primaryPhone = normalizePhone(c.phonePrimary ?? '');
+      const secondaryPhones = (Array.isArray(c.phoneSecondary) ? c.phoneSecondary : [])
+        .map((p: any) => normalizePhone(String(p)));
+      const allPhones = [primaryPhone, ...secondaryPhones].filter(Boolean);
+
+      // ── P1: Exact phone match (last 8 digits, handles country-code variants) ──
+      const phoneToCheck = embeddedPhone ?? (isPhoneOnly ? bareInput : null);
+      if (phoneToCheck && phoneToCheck.length >= 8) {
+        const suffix8 = phoneToCheck.slice(-8);
+        if (allPhones.some(p => p.slice(-8) === suffix8)) {
+          // Exact = full match; suffix = high confidence
+          const exact = allPhones.some(p => p === phoneToCheck || p === `967${phoneToCheck}` || `967${p}` === phoneToCheck);
+          candidates.push({ customer: c, score: exact ? 100 : 92, method: exact ? 'exact_phone' : 'phone_suffix' });
+          continue;
+        }
+      }
+
+      // ── Name rules: require ≥ 2 qualifying tokens (≥3 chars, non-digit) ──────
+      // NEVER match on a single token — single common names like يحيى/محمد are
+      // too ambiguous and will create wrong records.
+      if (inputTokens.length < 2) continue;
+
+      const custFull  = norm(c.fullName   ?? '');
+      const custFn    = norm(c.firstName  ?? '');
+      const custSn    = norm(c.secondName ?? '');
+      const custTn    = norm(c.thirdName  ?? '');
+      const custLn    = norm(c.lastName   ?? '');
+
+      // All customer name tokens (≥3 chars) in left-to-right order
+      const custTokens = custFull.split(/\s+/).filter(t => t.length >= 3);
+      if (custTokens.length === 0) continue;
+
+      // N1: Exact normalized full name ─────────────────────────────────────────
+      if (inputNorm === custFull && custFull.length >= 4) {
+        candidates.push({ customer: c, score: 100, method: 'exact_fullname' });
+        continue;
+      }
+
+      // N2: Linear contiguous subsequence — input tokens appear as a consecutive
+      // run inside the customer token list, IN ORDER.
+      // This is the primary rule for truncated names (beginning cut off).
+      // e.g. input ["فارس","يحيى"] matches cust ["محمد","فارس","يحيى","احمد"]
+      const seqLen = inputTokens.length;
+      let linearMatch = false;
+      for (let i = 0; i <= custTokens.length - seqLen; i++) {
+        if (inputTokens.every((t, j) => custTokens[i + j] === t)) {
+          linearMatch = true;
+          break;
+        }
+      }
+      if (linearMatch) {
+        candidates.push({ customer: c, score: 95, method: 'linear_subsequence' });
+        continue;
+      }
+
+      // N3: First + Last exact — both firstName and lastName are present in input
+      // tokens, each ≥3 chars, and they must be DIFFERENT tokens.
+      // Guard: if firstName === lastName the check degenerates to a single-token
+      // match (e.g. يحيى محمد عبدالله يحيى) — skip it in that case.
+      if (custFn.length >= 3 && custLn.length >= 3 && custFn !== custLn &&
+          inputTokens.includes(custFn) && inputTokens.includes(custLn)) {
+        candidates.push({ customer: c, score: 88, method: 'first_last_exact' });
+        continue;
+      }
+
+      // N4: All input tokens found anywhere in customer tokens (set match).
+      // Requires ≥2 tokens, all must be in the customer's token set.
+      if (seqLen >= 2 && inputTokens.every(t => custTokens.includes(t))) {
+        candidates.push({ customer: c, score: 80, method: 'all_tokens_in_name' });
+        continue;
+      }
+
+      // N5: Weighted partial token match — at least 2 tokens must match AND
+      // matched tokens must cover a meaningful proportion of the input.
+      // Weight each matched token by its length (longer = rarer = more specific).
+      // Score is intentionally capped at 69 so ambiguity check stays cautious.
+      const matchedTokens = inputTokens.filter(t => custTokens.includes(t));
+      if (matchedTokens.length >= 2) {
+        const weightSum   = matchedTokens.reduce((s, t) => s + Math.min(t.length, 8), 0);
+        const totalWeight = inputTokens.reduce((s, t) => s + Math.min(t.length, 8), 0);
+        const coverageRatio = matchedTokens.length / inputTokens.length;
+        // Only score if ≥60% of input tokens are matched
+        if (coverageRatio >= 0.6 && totalWeight > 0) {
+          const weighted = Math.round((weightSum / totalWeight) * 69);
+          if (weighted >= 55) {
+            candidates.push({ customer: c, score: weighted, method: 'weighted_partial' });
+          }
         }
       }
     }
 
-    // Rule 2: Fuzzy — partial full name match
-    for (const c of allCustomers) {
-      const full = (c.fullName ?? '').toLowerCase();
-      if (full.length >= 3 && inputLower.length >= 3) {
-        if (full.includes(inputLower) || inputLower.includes(full)) {
-          return { customer: c, method: 'fuzzy_fullname', score: 80 };
-        }
-      }
+    if (candidates.length === 0) return null;
+
+    // ── Ambiguity resolution ────────────────────────────────────────────────────
+    // Sort descending by score
+    candidates.sort((a, b) => b.score - a.score);
+    const top    = candidates[0];
+    const second = candidates[1];
+
+    // Definitive matches (phone exact, exact full name) are never ambiguous
+    if (top.score >= 100) {
+      return { customer: top.customer, method: top.method, score: top.score };
     }
 
-    // Rule 3: Exact phone match
-    if (isPhoneInput) {
-      for (const c of allCustomers) {
-        const primary = normalizePhone(c.phonePrimary ?? '');
-        const secondaries = (c.phoneSecondary ?? []).map(normalizePhone);
-        if (primary === inputPhone || secondaries.includes(inputPhone)) {
-          return { customer: c, method: 'exact_phone', score: 90 };
-        }
-      }
+    // If the second-best candidate is within 15 points of the top, the match is
+    // too ambiguous — do NOT assign (human review required).
+    if (second && (top.score - second.score) < 15) {
+      return null; // ambiguous — leave as unmatched, human reviews
     }
 
-    // Rule 4: OR — partial name OR phone
-    for (const c of allCustomers) {
-      const full = (c.fullName ?? '').toLowerCase();
-      const primary = normalizePhone(c.phonePrimary ?? '');
-      const secondaries = (c.phoneSecondary ?? []).map(normalizePhone);
-      const namePartial = inputParts.length >= 1 && inputParts.some(p => full.includes(p) && p.length >= 3);
-      const phonePartial = isPhoneInput && (primary.includes(inputPhone) || inputPhone.includes(primary) || secondaries.some(s => s.includes(inputPhone) || inputPhone.includes(s)));
-      if (namePartial || phonePartial) {
-        return { customer: c, method: namePartial ? 'partial_name_or_phone' : 'phone_partial', score: 60 };
-      }
-    }
+    // Require minimum confidence of 70 for auto-assignment
+    if (top.score < 70) return null;
 
-    // Rule 5: OR — full name OR partial name (looser)
-    for (const c of allCustomers) {
-      const full = (c.fullName ?? '').toLowerCase();
-      const fn = (c.firstName ?? '').toLowerCase().trim();
-      const ln = (c.lastName ?? '').toLowerCase().trim();
-      const sn = (c.secondName ?? '').toLowerCase().trim();
-      const nameParts = [fn, sn, ln].filter(Boolean);
-      const matchCount = nameParts.filter(p => inputLower.includes(p) && p.length >= 2).length;
-      if (matchCount >= 1 && full.length >= 3) {
-        return { customer: c, method: 'loose_name', score: 40 };
-      }
-    }
-
-    return null;
+    return { customer: top.customer, method: top.method, score: top.score };
   }
 
   // ─── NOTIFICATION QUEUE & AUDIT LOG ─────────────────────────────────────────
