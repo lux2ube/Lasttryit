@@ -305,7 +305,7 @@ export interface IStorage {
   deleteSmsRawInboxEntry(id: string): Promise<void>;
 
   // Customer Auto-Matching
-  autoMatchCustomer(clientString: string): Promise<{ customer: Customer; method: string; score: number } | null>;
+  autoMatchCustomer(clientString: string, accountId?: string): Promise<{ customer: Customer; method: string; score: number } | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2861,8 +2861,8 @@ export class DatabaseStorage implements IStorage {
         return updated;
       }
 
-      // Auto-match customer
-      const match = await this.autoMatchCustomer(parsed.client);
+      // Auto-match customer — pass accountId so tiebreaker can use account history
+      const match = await this.autoMatchCustomer(parsed.client, config.accountId);
 
       // Create record
       const isInflow = parsed.direction === 'inflow';
@@ -2937,22 +2937,38 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Customer Auto-Matching Engine ────────────────────────────────────────
-  // Scoring rules (all candidates scored, best wins — with ambiguity check):
-  //   P1: Exact/suffix phone match             → 100 / 92
-  //   N1: Exact normalized full name           → 100
-  //   N2: Linear contiguous token subsequence → 95  (handles front-truncated names)
-  //   N3: firstName + lastName both present   → 88
-  //   N4: All input tokens found in cust name → 80
-  //   N5: Weighted partial (≥2 tokens, ≥60%)  → 55–69
-  //   Ambiguity guard: top–second < 15pts → return null (human review)
-  //   Minimum score for auto-assign: 70
-  async autoMatchCustomer(clientString: string): Promise<{ customer: Customer; method: string; score: number } | null> {
+  //
+  //  Input patterns handled:
+  //    • Phone only           → "967771234567" or "+967 771 234 567"
+  //    • Name + phone         → "فارس 967771234567"
+  //    • Full name (4 parts)  → "محمد علي عبدالله الحرازي"
+  //    • First + second       → "فارس يحيى"   (may be truncated from front)
+  //    • First + last         → "فارس احمد"   (non-consecutive)
+  //    • Single first name    → "فارس"         (needs uniqueness / history tiebreaker)
+  //
+  //  Scoring (all candidates evaluated, best wins with ambiguity guard):
+  //    P1  Phone exact / suffix           → 100 / 92
+  //    N1  Full name exact (normalized)   → 100
+  //    N2  Linear token subsequence       → 95   ← primary rule for truncated names
+  //    N3  First + last (different tokens)→ 88
+  //    N4  All input tokens in name       → 80
+  //    N5  Weighted partial (≥2, ≥60%)   → 55–69
+  //    N6  Single token, unique in system → 72
+  //
+  //  Ambiguity / tiebreaker (when top–second < 15 pts):
+  //    T1  Only customer who used this account → score kept, label updated
+  //    T2  Most recently used this account     → score –5
+  //    T3  Most recently active overall        → score –8
+  //    T4  Still ambiguous → return null (human review)
+  //
+  async autoMatchCustomer(
+    clientString: string,
+    accountId?: string,
+  ): Promise<{ customer: Customer; method: string; score: number } | null> {
     if (!clientString || clientString.trim().length < 2) return null;
     const input = clientString.trim();
 
-    // ── Arabic normalization ───────────────────────────────────────────────────
-    // Strips diacritics, unifies alef/ya/ta-marbuta variants so DB name and SMS
-    // name compare correctly regardless of how the bank encoded them.
+    // ── Arabic normalization ─────────────────────────────────────────────────
     const norm = (s: string) =>
       s.trim()
         .replace(/[\u064B-\u065F\u0670\u0640]/g, '') // strip harakat + tatweel
@@ -2965,139 +2981,237 @@ export class DatabaseStorage implements IStorage {
 
     const normalizePhone = (p: string) => p.replace(/\D/g, '');
 
-    const inputNorm = norm(input);
-    // Qualified name tokens: normalized, ≥3 chars, excludes pure-digit tokens
+    const inputNorm   = norm(input);
+    // Name tokens: ≥3 chars, non-digit words only
     const inputTokens = inputNorm.split(/\s+/).filter(t => t.length >= 3 && !/^\d+$/.test(t));
 
-    // Extract any phone number embedded in the input (Yemeni numbers: 7xxxxxxxx or 9677xxxxxxxx)
-    const phoneMatch = input.match(/(?:\+?967\s*)?([7][0-9]{8})/);
+    // Extract Yemeni phone embedded in input (7xxxxxxxxx or 9677xxxxxxxxx)
+    const phoneMatch   = input.match(/(?:\+?967\s*)?([7][0-9]{8})/);
     const embeddedPhone = phoneMatch ? normalizePhone(phoneMatch[0]) : null;
-    const bareInput = normalizePhone(input);
-    const isPhoneOnly = /^\d{7,}$/.test(bareInput) && inputTokens.length === 0;
+    const bareInput    = normalizePhone(input);
+    const isPhoneOnly  = /^\d{7,}$/.test(bareInput) && inputTokens.length === 0;
 
     const allCustomers = await db.select().from(customers)
       .where(eq(customers.customerStatus, 'active'));
     if (allCustomers.length === 0) return null;
 
-    // ── Score every customer ────────────────────────────────────────────────────
     interface Candidate { customer: Customer; score: number; method: string; }
     const candidates: Candidate[] = [];
 
     for (const c of allCustomers) {
-      const primaryPhone = normalizePhone(c.phonePrimary ?? '');
+      const primaryPhone    = normalizePhone(c.phonePrimary ?? '');
       const secondaryPhones = (Array.isArray(c.phoneSecondary) ? c.phoneSecondary : [])
         .map((p: any) => normalizePhone(String(p)));
       const allPhones = [primaryPhone, ...secondaryPhones].filter(Boolean);
 
-      // ── P1: Exact phone match (last 8 digits, handles country-code variants) ──
+      // ── P1: Phone match ──────────────────────────────────────────────────
       const phoneToCheck = embeddedPhone ?? (isPhoneOnly ? bareInput : null);
       if (phoneToCheck && phoneToCheck.length >= 8) {
-        const suffix8 = phoneToCheck.slice(-8);
-        if (allPhones.some(p => p.slice(-8) === suffix8)) {
-          // Exact = full match; suffix = high confidence
-          const exact = allPhones.some(p => p === phoneToCheck || p === `967${phoneToCheck}` || `967${p}` === phoneToCheck);
-          candidates.push({ customer: c, score: exact ? 100 : 92, method: exact ? 'exact_phone' : 'phone_suffix' });
+        const sfx = phoneToCheck.slice(-8);
+        if (allPhones.some(p => p.slice(-8) === sfx)) {
+          const exact = allPhones.some(p =>
+            p === phoneToCheck ||
+            p === `967${phoneToCheck}` ||
+            `967${p}` === phoneToCheck
+          );
+          candidates.push({
+            customer: c,
+            score:  exact ? 100 : 92,
+            method: exact ? 'Phone number (exact)' : 'Phone number (suffix match)',
+          });
           continue;
         }
       }
 
-      // ── Name rules: require ≥ 2 qualifying tokens (≥3 chars, non-digit) ──────
-      // NEVER match on a single token — single common names like يحيى/محمد are
-      // too ambiguous and will create wrong records.
-      if (inputTokens.length < 2) continue;
-
-      const custFull  = norm(c.fullName   ?? '');
-      const custFn    = norm(c.firstName  ?? '');
-      const custSn    = norm(c.secondName ?? '');
-      const custTn    = norm(c.thirdName  ?? '');
-      const custLn    = norm(c.lastName   ?? '');
-
-      // All customer name tokens (≥3 chars) in left-to-right order
+      const custFull   = norm(c.fullName   ?? '');
+      const custFn     = norm(c.firstName  ?? '');
+      const custLn     = norm(c.lastName   ?? '');
       const custTokens = custFull.split(/\s+/).filter(t => t.length >= 3);
       if (custTokens.length === 0) continue;
 
-      // N1: Exact normalized full name ─────────────────────────────────────────
-      if (inputNorm === custFull && custFull.length >= 4) {
-        candidates.push({ customer: c, score: 100, method: 'exact_fullname' });
+      // ── N1: Exact normalized full name ───────────────────────────────────
+      if (inputTokens.length >= 2 && inputNorm === custFull && custFull.length >= 4) {
+        candidates.push({ customer: c, score: 100, method: 'Full name (exact)' });
         continue;
       }
 
-      // N2: Linear contiguous subsequence — input tokens appear as a consecutive
-      // run inside the customer token list, IN ORDER.
-      // This is the primary rule for truncated names (beginning cut off).
-      // e.g. input ["فارس","يحيى"] matches cust ["محمد","فارس","يحيى","احمد"]
-      const seqLen = inputTokens.length;
-      let linearMatch = false;
-      for (let i = 0; i <= custTokens.length - seqLen; i++) {
-        if (inputTokens.every((t, j) => custTokens[i + j] === t)) {
-          linearMatch = true;
-          break;
+      // ── N2: Linear contiguous subsequence (IN ORDER) ────────────────────
+      // Handles names truncated from the front (bank cuts first 1–2 parts).
+      // e.g. input ["فارس","يحيى"] inside cust ["محمد","فارس","يحيى","احمد"]
+      if (inputTokens.length >= 2) {
+        const seqLen = inputTokens.length;
+        let lin = false;
+        for (let i = 0; i <= custTokens.length - seqLen; i++) {
+          if (inputTokens.every((t, j) => custTokens[i + j] === t)) { lin = true; break; }
+        }
+        if (lin) {
+          candidates.push({ customer: c, score: 95, method: 'Name in order (truncated OK)' });
+          continue;
         }
       }
-      if (linearMatch) {
-        candidates.push({ customer: c, score: 95, method: 'linear_subsequence' });
-        continue;
-      }
 
-      // N3: First + Last exact — both firstName and lastName are present in input
-      // tokens, each ≥3 chars, and they must be DIFFERENT tokens.
-      // Guard: if firstName === lastName the check degenerates to a single-token
-      // match (e.g. يحيى محمد عبدالله يحيى) — skip it in that case.
-      if (custFn.length >= 3 && custLn.length >= 3 && custFn !== custLn &&
+      // ── N3: First + Last (different tokens, each ≥3 chars) ──────────────
+      // Guard: if fn===ln it degenerates to a single-token match — skip.
+      if (inputTokens.length >= 2 &&
+          custFn.length >= 3 && custLn.length >= 3 && custFn !== custLn &&
           inputTokens.includes(custFn) && inputTokens.includes(custLn)) {
-        candidates.push({ customer: c, score: 88, method: 'first_last_exact' });
+        candidates.push({ customer: c, score: 88, method: 'First + last name' });
         continue;
       }
 
-      // N4: All input tokens found anywhere in customer tokens (set match).
-      // Requires ≥2 tokens, all must be in the customer's token set.
-      if (seqLen >= 2 && inputTokens.every(t => custTokens.includes(t))) {
-        candidates.push({ customer: c, score: 80, method: 'all_tokens_in_name' });
+      // ── N4: All input tokens found anywhere in customer name ─────────────
+      if (inputTokens.length >= 2 && inputTokens.every(t => custTokens.includes(t))) {
+        candidates.push({ customer: c, score: 80, method: 'All name parts matched' });
         continue;
       }
 
-      // N5: Weighted partial token match — at least 2 tokens must match AND
-      // matched tokens must cover a meaningful proportion of the input.
-      // Weight each matched token by its length (longer = rarer = more specific).
-      // Score is intentionally capped at 69 so ambiguity check stays cautious.
-      const matchedTokens = inputTokens.filter(t => custTokens.includes(t));
-      if (matchedTokens.length >= 2) {
-        const weightSum   = matchedTokens.reduce((s, t) => s + Math.min(t.length, 8), 0);
-        const totalWeight = inputTokens.reduce((s, t) => s + Math.min(t.length, 8), 0);
-        const coverageRatio = matchedTokens.length / inputTokens.length;
-        // Only score if ≥60% of input tokens are matched
-        if (coverageRatio >= 0.6 && totalWeight > 0) {
-          const weighted = Math.round((weightSum / totalWeight) * 69);
-          if (weighted >= 55) {
-            candidates.push({ customer: c, score: weighted, method: 'weighted_partial' });
+      // ── N5: Weighted partial (≥2 matched tokens, ≥60% coverage) ─────────
+      if (inputTokens.length >= 2) {
+        const matched  = inputTokens.filter(t => custTokens.includes(t));
+        if (matched.length >= 2) {
+          const ws = matched.reduce((s, t) => s + Math.min(t.length, 8), 0);
+          const wt = inputTokens.reduce((s, t) => s + Math.min(t.length, 8), 0);
+          if (matched.length / inputTokens.length >= 0.6 && wt > 0) {
+            const sc = Math.round((ws / wt) * 69);
+            if (sc >= 55) {
+              candidates.push({ customer: c, score: sc, method: 'Partial name match (weighted)' });
+            }
           }
+        }
+      }
+
+      // ── N6: Single token — only if it appears in this customer's name ────
+      // Scored separately below after uniqueness count is known.
+      // (We collect them and score after the loop.)
+    }
+
+    // ── N6: Single-token name (first name only etc.) ────────────────────────
+    // Only attempt if no multi-token candidates exist yet — avoids polluting
+    // the candidate list when we already have high-confidence matches.
+    if (inputTokens.length === 1 && candidates.length === 0) {
+      const tok = inputTokens[0];
+      const singleMatches = allCustomers.filter(c => {
+        const custFull = norm(c.fullName ?? '');
+        return custFull.split(/\s+/).includes(tok);
+      });
+      if (singleMatches.length === 1) {
+        // Unique in the entire system → moderate confidence
+        candidates.push({ customer: singleMatches[0], score: 72, method: 'First name (unique in system)' });
+      } else if (singleMatches.length > 1) {
+        // Not unique — add all at low score so tiebreaker can resolve
+        for (const c of singleMatches) {
+          candidates.push({ customer: c, score: 60, method: 'First name (needs account history)' });
         }
       }
     }
 
     if (candidates.length === 0) return null;
 
-    // ── Ambiguity resolution ────────────────────────────────────────────────────
-    // Sort descending by score
+    // ── Ambiguity resolution ─────────────────────────────────────────────────
     candidates.sort((a, b) => b.score - a.score);
     const top    = candidates[0];
     const second = candidates[1];
 
-    // Definitive matches (phone exact, exact full name) are never ambiguous
+    // Definitive matches (phone exact or full name exact) — never ambiguous
     if (top.score >= 100) {
       return { customer: top.customer, method: top.method, score: top.score };
     }
 
-    // If the second-best candidate is within 15 points of the top, the match is
-    // too ambiguous — do NOT assign (human review required).
-    if (second && (top.score - second.score) < 15) {
-      return null; // ambiguous — leave as unmatched, human reviews
+    // Single unambiguous winner above minimum threshold
+    if (!second || (top.score - second.score) >= 15) {
+      if (top.score >= 70) return { customer: top.customer, method: top.method, score: top.score };
+      return null;
     }
 
-    // Require minimum confidence of 70 for auto-assignment
-    if (top.score < 70) return null;
+    // ── Tiebreaker: multiple candidates within 15 points ────────────────────
+    // Collect the tied group (all within 15 pts of the top score)
+    const tiedGroup = candidates.filter(c => top.score - c.score < 15);
 
-    return { customer: top.customer, method: top.method, score: top.score };
+    return this._resolveMatchTiebreaker(tiedGroup, accountId);
+  }
+
+  // Tiebreaker: among equally-scored candidates, prefer the one who has
+  // previously used this specific account, then the most recently active one.
+  private async _resolveMatchTiebreaker(
+    group: Array<{ customer: Customer; score: number; method: string }>,
+    accountId?: string,
+  ): Promise<{ customer: Customer; method: string; score: number } | null> {
+
+    // ── T1/T2: Account-specific history ─────────────────────────────────────
+    if (accountId) {
+      interface WithTime { customer: Customer; score: number; method: string; lastAt: Date | null; }
+      const withAccountHist: WithTime[] = [];
+
+      for (const cand of group) {
+        const [last] = await db
+          .select({ createdAt: records.createdAt })
+          .from(records)
+          .where(and(
+            eq(records.customerId, cand.customer.id),
+            eq(records.accountId,  accountId),
+          ))
+          .orderBy(desc(records.createdAt))
+          .limit(1);
+        if (last) {
+          withAccountHist.push({ ...cand, lastAt: last.createdAt });
+        }
+      }
+
+      if (withAccountHist.length === 1) {
+        // T1: Only one candidate has ever used this account — strong signal
+        const w = withAccountHist[0];
+        return {
+          customer: w.customer,
+          score:    w.score,
+          method:   `${w.method} + only client for this account`,
+        };
+      }
+      if (withAccountHist.length > 1) {
+        // T2: Multiple have used the account — pick most recent
+        withAccountHist.sort((a, b) =>
+          new Date(b.lastAt!).getTime() - new Date(a.lastAt!).getTime()
+        );
+        const w = withAccountHist[0];
+        return {
+          customer: w.customer,
+          score:    Math.max(w.score - 5, 65),
+          method:   `${w.method} + most recent for this account`,
+        };
+      }
+    }
+
+    // ── T3: Most recently active overall (any record) ────────────────────────
+    interface WithTime2 { customer: Customer; score: number; method: string; lastAt: Date | null; }
+    const withActivity: WithTime2[] = [];
+
+    for (const cand of group) {
+      const [last] = await db
+        .select({ createdAt: records.createdAt })
+        .from(records)
+        .where(eq(records.customerId, cand.customer.id))
+        .orderBy(desc(records.createdAt))
+        .limit(1);
+      withActivity.push({ ...cand, lastAt: last?.createdAt ?? null });
+    }
+
+    const active = withActivity.filter(c => c.lastAt !== null);
+    if (active.length >= 1) {
+      active.sort((a, b) =>
+        new Date(b.lastAt!).getTime() - new Date(a.lastAt!).getTime()
+      );
+      const w = active[0];
+      // Only trust this tiebreaker if the score is already decent
+      if (w.score >= 60) {
+        return {
+          customer: w.customer,
+          score:    Math.max(w.score - 8, 60),
+          method:   `${w.method} + most recently active`,
+        };
+      }
+    }
+
+    // ── T4: Truly ambiguous — leave for human review ─────────────────────────
+    return null;
   }
 
   // ─── NOTIFICATION QUEUE & AUDIT LOG ─────────────────────────────────────────
