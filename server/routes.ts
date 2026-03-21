@@ -102,7 +102,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     contentSecurityPolicy: isProd ? {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'wasm-unsafe-eval'", "blob:"],
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'", "blob:", "https://cdn.jsdelivr.net"],
         workerSrc: ["'self'", "blob:"],
         connectSrc: ["'self'", "https:", "wss:"],
         imgSrc: ["'self'", "data:", "blob:"],

@@ -1323,7 +1323,14 @@ function CustomerFormPage({
     try {
       // Step 1: Tesseract extracts raw text
       const { data } = await Tesseract.recognize(imageDataUrl, "ara+eng", {
-        logger: (m: any) => { if (m.status === "recognizing text") setOcrProgress(Math.round(m.progress * 70)); },
+        workerPath: "/tesseract-worker.min.js",
+        logger: (m: any) => {
+          if (m.status === "loading tesseract core") setOcrProgress(Math.round(m.progress * 10));
+          else if (m.status === "initializing tesseract") setOcrProgress(10 + Math.round(m.progress * 5));
+          else if (m.status === "loading language traineddata") setOcrProgress(15 + Math.round(m.progress * 30));
+          else if (m.status === "initializing api") setOcrProgress(45 + Math.round(m.progress * 10));
+          else if (m.status === "recognizing text") setOcrProgress(55 + Math.round(m.progress * 15));
+        },
       });
       const rawText = data.text;
       setOcrProgress(75);
@@ -2165,8 +2172,13 @@ function ScanDocumentDialog({
     try {
       // Step 1: Tesseract extracts raw text
       const { data } = await Tesseract.recognize(dataUrl, "ara+eng", {
+        workerPath: "/tesseract-worker.min.js",
         logger: (m: any) => {
-          if (m.status === "recognizing text") setOcrProgress(Math.round(m.progress * 70));
+          if (m.status === "loading tesseract core") setOcrProgress(Math.round(m.progress * 10));
+          else if (m.status === "initializing tesseract") setOcrProgress(10 + Math.round(m.progress * 5));
+          else if (m.status === "loading language traineddata") setOcrProgress(15 + Math.round(m.progress * 30));
+          else if (m.status === "initializing api") setOcrProgress(45 + Math.round(m.progress * 10));
+          else if (m.status === "recognizing text") setOcrProgress(55 + Math.round(m.progress * 15));
         },
       });
       const rawText = data.text;
