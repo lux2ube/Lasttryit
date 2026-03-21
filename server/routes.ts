@@ -551,6 +551,15 @@ PASSPORT-SPECIFIC RULES:
 - placeOfBirth: look for "مكان الميلاد" / "PLACE OF BIRTH" — if Arabic text is visible use it; if only English is visible (e.g. "TAIZ YEM", "ADEN YEM") translate to Arabic (TAIZ=تعز, ADEN=عدن, SANAA=صنعاء, IBB=إب, HADRAMOUT=حضرموت, HODEIDAH=الحديدة, DHAMAR=ذمار, MARIB=مأرب, SHABWAH=شبوة, ABYAN=أبين, LAHJ=لحج, ALDALEH=الضالع, MAHWEET=المحويت, HAJJAH=حجة, SAADA=صعدة, JAWF=الجوف, AMRAN=عمران, RAIMAH=ريمة, ALMAHRAH=المهرة, SOCOTRA=سقطرى, MUKALLA=حضرموت).
 - governorate: extract from placeOfBirth — apply the same English→Arabic mapping if needed.
 - gender: M in MRZ = male, F = female. Also look for ذكر (male) or أنثى (female).`
+        : documentType === "national_id_back"
+        ? `The source document is the BACK side of a Yemeni National ID card (الوجه الخلفي للبطاقة الشخصية).
+ID BACK-SPECIFIC RULES:
+- documentNumber: look for "الرقم الوطني" / "National No." — the national ID number (same as the front side). Keep any dashes exactly as printed.
+- expiryDate: look for "تاريخ الانتهاء" / "صالحة حتى" / "Expiry" / "Valid Until" — convert to YYYY-MM-DD.
+- issueDate: look for "تاريخ الإصدار" / "Issue Date" / "Date of Issue" — convert to YYYY-MM-DD.
+- fullName, dateOfBirth, gender, placeOfBirth, bloodType, governorate, district, subdistrict: MUST all return null — they appear on the front side only.
+- The back may have a barcode, QR code, or machine-readable zone — extract documentNumber and dates from any numeric patterns if clearly readable.
+- docConfidence: rate 0-100 based on how clearly the card number and at least one date could be read.`
         : `The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني).
 ID-SPECIFIC RULES:
 - Two layouts exist: northern design (Republic of Yemen / Ministry of Interior header, fields for national number, name, birthplace, birthdate, blood type) and southern design (single face with large national number prominently displayed).
@@ -559,7 +568,6 @@ ID-SPECIFIC RULES:
 - placeOfBirth appears after "مكان الميلاد:" — may encode "governorate – district" separated by dash or space.
 - The ID front typically does NOT have an expiry date — leave expiryDate null unless explicitly printed.
 - Split placeOfBirth into governorate and district when it contains " - " or " – " or " / ".`;
-
       const govListStr = govNames.slice(0, 22).join(" | ");  // all 22 Yemeni governorates
 
       const prompt = `You are a data extraction specialist for Yemeni identity documents. You will receive raw OCR text scanned from a document and must extract structured fields from it.

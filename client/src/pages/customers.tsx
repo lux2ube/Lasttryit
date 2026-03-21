@@ -1321,38 +1321,62 @@ function CustomerFormPage({
     setOcrLoading(true);
     setOcrProgress(0);
     try {
+      // Step 1: Tesseract extracts raw text
       const { data } = await Tesseract.recognize(imageDataUrl, "ara+eng", {
-        logger: (m: any) => { if (m.status === "recognizing text") setOcrProgress(Math.round(m.progress * 100)); },
+        logger: (m: any) => { if (m.status === "recognizing text") setOcrProgress(Math.round(m.progress * 70)); },
       });
-      const text = data.text;
-      const datePatterns = text.match(/\d{4}[\/\-]\d{2}[\/\-]\d{2}|\d{2}[\/\-]\d{2}[\/\-]\d{4}/g) ?? [];
-      const idPatterns = text.match(/\d{6,15}/g) ?? [];
-      const extracted: { number?: string; issueDate?: string; expiryDate?: string } = {};
-      const firstId = idPatterns[0];
-      if (firstId && !docForm.number) extracted.number = firstId;
-      const firstDate = datePatterns[0];
-      const secondDate = datePatterns[1];
-      if (firstDate && secondDate) {
-        if (!docForm.issueDate) extracted.issueDate = firstDate.replace(/\//g, "-");
-        if (!docForm.expiryDate) extracted.expiryDate = secondDate.replace(/\//g, "-");
-      } else if (firstDate) {
-        if (!docForm.expiryDate) extracted.expiryDate = firstDate.replace(/\//g, "-");
+      const rawText = data.text;
+      setOcrProgress(75);
+
+      // Map doc form type to API documentType
+      const apiDocType =
+        docForm.type === "passport" ? "passport"
+        : docForm.type === "national_id_back" ? "national_id_back"
+        : "national_id";
+
+      // Step 2: Deepseek-powered parsing (same engine as ScanDocumentDialog)
+      const res = await fetch("/api/ocr/scan-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rawText, documentType: apiDocType }),
+      });
+      setOcrProgress(95);
+
+      if (!res.ok) throw new Error("AI parsing failed");
+
+      const json = await res.json();
+      const ext = json.extracted ?? {};
+      setOcrProgress(100);
+
+      // Fill document form fields
+      const updates: Partial<Omit<DocItem, "id">> = {};
+      if (ext.documentNumber && !docForm.number) updates.number = ext.documentNumber;
+      if (ext.issueDate && !docForm.issueDate) updates.issueDate = ext.issueDate;
+      if (ext.expiryDate && !docForm.expiryDate) updates.expiryDate = ext.expiryDate;
+      if (Object.keys(updates).length > 0) setDocForm(prev => ({ ...prev, ...updates }));
+
+      // For front IDs and passports, also update form-level geography fields
+      if (apiDocType !== "national_id_back") {
+        const allGovNames = YEMEN_GOVERNORATES.map(g => g.name);
+        const allDistNames = YEMEN_GOVERNORATES.flatMap(g => g.districts.map(d => d.name));
+        const foundGov = ext.governorate
+          ? (allGovNames.find(n => n === ext.governorate) ?? allGovNames.find(n => rawText.includes(n)))
+          : allGovNames.find(n => rawText.includes(n));
+        const foundDist = ext.district
+          ? (allDistNames.find(n => n === ext.district) ?? allDistNames.find(n => rawText.includes(n)))
+          : allDistNames.find(n => rawText.includes(n));
+        if (foundGov && !selectedGov) { setSelectedGov(foundGov); form.setValue("city", foundGov); }
+        if (foundDist && !selectedDistrict) { setSelectedDistrict(foundDist); form.setValue("district", foundDist); }
       }
 
-      const allGovNames = YEMEN_GOVERNORATES.map(g => g.name);
-      const allDistNames = YEMEN_GOVERNORATES.flatMap(g => g.districts.map(d => d.name));
-      const foundGov = allGovNames.find(n => text.includes(n));
-      const foundDist = allDistNames.find(n => text.includes(n));
-
-      if (Object.keys(extracted).length > 0) {
-        setDocForm(prev => ({ ...prev, ...extracted }));
-        toast({ title: "OCR Complete", description: `Extracted: ${Object.keys(extracted).join(", ")}${foundGov ? ` | محافظة: ${foundGov}` : ""}${foundDist ? ` | مديرية: ${foundDist}` : ""}` });
-      } else {
-        toast({ title: "OCR Complete", description: `No structured data found. Raw text available.${foundGov ? ` | محافظة: ${foundGov}` : ""}`, variant: "default" });
-      }
-
-      if (foundGov && !selectedGov) { setSelectedGov(foundGov); form.setValue("city", foundGov); }
-      if (foundDist && !selectedDistrict) { setSelectedDistrict(foundDist); form.setValue("district", foundDist); }
+      const extractedKeys = Object.keys(updates);
+      toast({
+        title: "OCR Complete",
+        description: extractedKeys.length > 0
+          ? `Extracted: ${extractedKeys.join(", ")} · Confidence: ${ext.docConfidence ?? "?"}%`
+          : "No structured data found in document",
+      });
     } catch (err) {
       toast({ title: "OCR Failed", description: "Could not process image", variant: "destructive" });
     } finally {
@@ -2102,7 +2126,7 @@ function ScanDocumentDialog({
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "ocr" | "review" | "duplicate">("upload");
-  const [docType, setDocType] = useState<"national_id" | "passport">("national_id");
+  const [docType, setDocType] = useState<"national_id" | "national_id_back" | "passport">("national_id");
   const [imageData, setImageData] = useState<{ name: string; type: string; size: number; data: string } | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [rawOcrText, setRawOcrText] = useState("");
@@ -2114,6 +2138,7 @@ function ScanDocumentDialog({
   const [editedData, setEditedData] = useState<ScannedData>({ ...scanned });
   const [duplicates, setDuplicates] = useState<Customer[]>([]);
   const [checking, setChecking] = useState(false);
+  const [backNotFound, setBackNotFound] = useState(false);
 
   const updateField = (key: keyof ScannedData, val: string | null) =>
     setEditedData(prev => ({ ...prev, [key]: val }));
@@ -2218,6 +2243,33 @@ function ScanDocumentDialog({
     }
   };
 
+  const checkForIdBack = async () => {
+    if (!editedData.documentNumber) return;
+    setChecking(true);
+    setBackNotFound(false);
+    try {
+      const params = new URLSearchParams({ search: editedData.documentNumber });
+      const res = await fetch(`/api/customers?${params.toString()}`, { credentials: "include" });
+      const list: Customer[] = await res.json();
+      const normalized = editedData.documentNumber.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
+      const found = list.find(c =>
+        (c.documentation as any[] ?? []).some((d: any) => {
+          const n = (d.number ?? "").replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
+          return n && n === normalized;
+        })
+      );
+      if (found) {
+        onEditExisting(found.id, editedData, "national_id_back", imageData);
+      } else {
+        setBackNotFound(true);
+      }
+    } catch {
+      setBackNotFound(true);
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const confidence = editedData.docConfidence ?? 0;
   const confidenceColor = confidence >= 80 ? "text-emerald-600" : confidence >= 50 ? "text-amber-600" : "text-red-500";
 
@@ -2237,20 +2289,26 @@ function ScanDocumentDialog({
         {/* ── Step 1: Upload ──────────────────────────────────────── */}
         {step === "upload" && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {(["national_id", "passport"] as const).map(t => (
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: "national_id", label: "🪪 ID Front", sub: "الوجه الأمامي" },
+                { value: "national_id_back", label: "🪪 ID Back", sub: "الوجه الخلفي" },
+                { value: "passport", label: "📘 Passport", sub: "جواز السفر" },
+              ] as const).map(t => (
                 <button
-                  key={t}
+                  key={t.value}
                   type="button"
-                  onClick={() => setDocType(t)}
-                  data-testid={`scan-type-${t}`}
-                  className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
-                    docType === t
+                  onClick={() => { setDocType(t.value); setBackNotFound(false); }}
+                  data-testid={`scan-type-${t.value}`}
+                  className={`p-2.5 rounded-lg border-2 text-xs font-medium transition-colors flex flex-col items-center gap-0.5 ${
+                    docType === t.value
                       ? "border-primary bg-primary/5 text-primary"
                       : "border-border text-muted-foreground hover:border-primary/40"
                   }`}
                 >
-                  {t === "national_id" ? "🪪 National ID" : "📘 Passport"}
+                  <span className="text-base">{t.label.split(" ")[0]}</span>
+                  <span>{t.label.split(" ").slice(1).join(" ")}</span>
+                  <span className="text-[10px] opacity-70 font-arabic">{t.sub}</span>
                 </button>
               ))}
             </div>
@@ -2354,154 +2412,183 @@ function ScanDocumentDialog({
               </Alert>
             )}
 
-            <div className="space-y-3">
-              {/* Full Name */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Full Name (الاسم)</label>
-                <Input
-                  value={editedData.fullName ?? ""}
-                  onChange={e => { updateField("fullName", e.target.value || null); setEditedData(prev => ({ ...prev, _nameFromMRZ: false })); }}
-                  placeholder="محمد علي أحمد"
-                  className={`text-right font-arabic ${editedData._nameFromMRZ ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : ""}`}
-                  dir="rtl"
-                  data-testid="scan-input-fullname"
-                />
-                {editedData._nameFromMRZ && editedData.fullName && (
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
-                    Reconstructed from passport MRZ — please verify and correct if needed
-                  </p>
-                )}
+            {/* ID Back: info banner */}
+            {docType === "national_id_back" && (
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 text-xs text-blue-800 dark:text-blue-300">
+                <strong>ID Back scan</strong> — will search for the customer whose front-side ID has this number and attach the back document to them.
               </div>
+            )}
 
-              {/* Document Number */}
+            <div className="space-y-3">
+              {/* Full Name — front/passport only */}
+              {docType !== "national_id_back" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Full Name (الاسم)</label>
+                  <Input
+                    value={editedData.fullName ?? ""}
+                    onChange={e => { updateField("fullName", e.target.value || null); setEditedData(prev => ({ ...prev, _nameFromMRZ: false })); }}
+                    placeholder="محمد علي أحمد"
+                    className={`text-right font-arabic ${editedData._nameFromMRZ ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : ""}`}
+                    dir="rtl"
+                    data-testid="scan-input-fullname"
+                  />
+                  {editedData._nameFromMRZ && editedData.fullName && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      Reconstructed from passport MRZ — please verify and correct if needed
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Document Number — always shown */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">
                   {docType === "passport" ? "Passport Number" : "National ID Number (الرقم الوطني)"}
                 </label>
                 <Input
                   value={editedData.documentNumber ?? ""}
-                  onChange={e => updateField("documentNumber", e.target.value || null)}
+                  onChange={e => { updateField("documentNumber", e.target.value || null); setBackNotFound(false); }}
                   placeholder={docType === "passport" ? "10469482" : "6994-4094-3317"}
                   className="font-mono"
                   data-testid="scan-input-docnumber"
                 />
               </div>
 
-              {/* Date of Birth */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Date of Birth (تاريخ الميلاد)</label>
-                  <Input
-                    value={editedData.dateOfBirth ?? ""}
-                    onChange={e => updateField("dateOfBirth", e.target.value || null)}
-                    placeholder="YYYY-MM-DD"
-                    data-testid="scan-input-dob"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Gender (الجنس)</label>
-                  <Select
-                    value={editedData.gender ?? ""}
-                    onValueChange={v => updateField("gender", v || null)}
-                  >
-                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="male">Male (ذكر)</SelectItem>
-                      <SelectItem value="female">Female (أنثى)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Place of Birth */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Place of Birth (مكان الميلاد)</label>
-                <Input
-                  value={editedData.placeOfBirth ?? ""}
-                  onChange={e => updateField("placeOfBirth", e.target.value || null)}
-                  placeholder="عدن - المنصورة"
-                  className="text-right"
-                  dir="rtl"
-                  data-testid="scan-input-placeofbirth"
-                />
-              </div>
-
-              {/* Governorate / District / Subdistrict */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Governorate (المحافظة)</label>
-                  <Input
-                    value={editedData.governorate ?? ""}
-                    onChange={e => updateField("governorate", e.target.value || null)}
-                    placeholder="عدن"
-                    className="text-right"
-                    dir="rtl"
-                    data-testid="scan-input-governorate"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">District (المديرية)</label>
-                  <Input
-                    value={editedData.district ?? ""}
-                    onChange={e => updateField("district", e.target.value || null)}
-                    placeholder="الشيخ عثمان"
-                    className="text-right"
-                    dir="rtl"
-                    data-testid="scan-input-district"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Uzlah (العزلة)</label>
-                  <Input
-                    value={editedData.subdistrict ?? ""}
-                    onChange={e => updateField("subdistrict", e.target.value || null)}
-                    placeholder="—"
-                    className="text-right"
-                    dir="rtl"
-                    data-testid="scan-input-subdistrict"
-                  />
-                </div>
-              </div>
-
-              {/* Issue / Expiry dates */}
-              {(docType === "passport" || editedData.issueDate || editedData.expiryDate) && (
+              {/* Date of Birth + Gender — front/passport only */}
+              {docType !== "national_id_back" && (
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Issue Date</label>
+                    <label className="text-xs font-medium text-muted-foreground">Date of Birth (تاريخ الميلاد)</label>
                     <Input
-                      value={editedData.issueDate ?? ""}
-                      onChange={e => updateField("issueDate", e.target.value || null)}
+                      value={editedData.dateOfBirth ?? ""}
+                      onChange={e => updateField("dateOfBirth", e.target.value || null)}
                       placeholder="YYYY-MM-DD"
+                      data-testid="scan-input-dob"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Expiry Date</label>
+                    <label className="text-xs font-medium text-muted-foreground">Gender (الجنس)</label>
+                    <Select
+                      value={editedData.gender ?? ""}
+                      onValueChange={v => updateField("gender", v || null)}
+                    >
+                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="male">Male (ذكر)</SelectItem>
+                        <SelectItem value="female">Female (أنثى)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Place of Birth — front/passport only */}
+              {docType !== "national_id_back" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Place of Birth (مكان الميلاد)</label>
+                  <Input
+                    value={editedData.placeOfBirth ?? ""}
+                    onChange={e => updateField("placeOfBirth", e.target.value || null)}
+                    placeholder="عدن - المنصورة"
+                    className="text-right"
+                    dir="rtl"
+                    data-testid="scan-input-placeofbirth"
+                  />
+                </div>
+              )}
+
+              {/* Governorate / District / Subdistrict — front/passport only */}
+              {docType !== "national_id_back" && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Governorate (المحافظة)</label>
                     <Input
-                      value={editedData.expiryDate ?? ""}
-                      onChange={e => updateField("expiryDate", e.target.value || null)}
-                      placeholder="YYYY-MM-DD"
+                      value={editedData.governorate ?? ""}
+                      onChange={e => updateField("governorate", e.target.value || null)}
+                      placeholder="عدن"
+                      className="text-right"
+                      dir="rtl"
+                      data-testid="scan-input-governorate"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">District (المديرية)</label>
+                    <Input
+                      value={editedData.district ?? ""}
+                      onChange={e => updateField("district", e.target.value || null)}
+                      placeholder="الشيخ عثمان"
+                      className="text-right"
+                      dir="rtl"
+                      data-testid="scan-input-district"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Uzlah (العزلة)</label>
+                    <Input
+                      value={editedData.subdistrict ?? ""}
+                      onChange={e => updateField("subdistrict", e.target.value || null)}
+                      placeholder="—"
+                      className="text-right"
+                      dir="rtl"
+                      data-testid="scan-input-subdistrict"
                     />
                   </div>
                 </div>
               )}
+
+              {/* Issue / Expiry dates — always shown */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Issue Date (تاريخ الإصدار)</label>
+                  <Input
+                    value={editedData.issueDate ?? ""}
+                    onChange={e => updateField("issueDate", e.target.value || null)}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Expiry Date (تاريخ الانتهاء)</label>
+                  <Input
+                    value={editedData.expiryDate ?? ""}
+                    onChange={e => updateField("expiryDate", e.target.value || null)}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* "Not found" error for ID back */}
+            {backNotFound && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-3.5 w-3.5" />
+                <AlertDescription className="text-xs">
+                  No customer with national ID <strong className="font-mono">{editedData.documentNumber}</strong> found in the system.
+                  Please scan the front side first to create the customer record.
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="flex items-center gap-2 pt-1">
               <Button
                 type="button" variant="outline" size="sm"
-                onClick={() => { setStep("upload"); setImageData(null); }}
+                onClick={() => { setStep("upload"); setImageData(null); setBackNotFound(false); }}
                 className="gap-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />Rescan
               </Button>
               <Button
                 type="button" size="sm" className="flex-1"
-                onClick={checkDuplicates}
-                disabled={checking || !editedData.fullName}
+                onClick={docType === "national_id_back" ? checkForIdBack : checkDuplicates}
+                disabled={checking || (docType === "national_id_back" ? !editedData.documentNumber : !editedData.fullName)}
                 data-testid="button-scan-continue"
               >
-                {checking ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Checking...</> : <>Continue <ChevronRight className="w-3.5 h-3.5 ml-1" /></>}
+                {checking
+                  ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Searching...</>
+                  : docType === "national_id_back"
+                    ? <>Find Customer <ChevronRight className="w-3.5 h-3.5 ml-1" /></>
+                    : <>Continue <ChevronRight className="w-3.5 h-3.5 ml-1" /></>
+                }
               </Button>
             </div>
           </div>
