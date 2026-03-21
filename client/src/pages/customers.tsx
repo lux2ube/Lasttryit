@@ -1281,12 +1281,31 @@ function CustomerFormPage({
 
   const existingCity   = (customer?.demographics as any)?.city ?? "";
   const cityParts = existingCity.split(" — ");
-  // For prefill from scan: fuzzy-match the raw text against the actual DB lists
-  const existingGov = prefill?.data.governorate
-    ? (fuzzyMatchGov(prefill.data.governorate) || prefill.data.governorate)
+  // For prefill from scan: fuzzy-match the raw text against the actual DB lists,
+  // with placeOfBirth as fallback when dedicated governorate/district are null.
+  const placeOfBirthParts = (() => {
+    const pob = prefill?.data.placeOfBirth ?? "";
+    if (!pob) return { gov: "", dist: "" };
+    // Strip common prefix
+    const cleaned = pob.replace(/^(محافظة|أمانة|مديرية)\s*/u, "");
+    // Separator patterns: " - ", " – ", " / ", "،"
+    const sep = cleaned.match(/\s[-–/،]\s?(.+)/);
+    if (sep) {
+      const govPart  = cleaned.slice(0, cleaned.indexOf(sep[0])).trim();
+      const distPart = sep[1].trim();
+      return { gov: govPart, dist: distPart };
+    }
+    return { gov: cleaned.trim(), dist: "" };
+  })();
+
+  const rawGov  = prefill?.data.governorate || placeOfBirthParts.gov || "";
+  const rawDist = prefill?.data.district     || placeOfBirthParts.dist || "";
+
+  const existingGov = rawGov
+    ? (fuzzyMatchGov(rawGov) || rawGov)
     : (cityParts[0] ?? "");
-  const existingDistrict = prefill?.data.district
-    ? (fuzzyMatchDistrict(existingGov, prefill.data.district) || prefill.data.district)
+  const existingDistrict = rawDist
+    ? (fuzzyMatchDistrict(existingGov || rawGov, rawDist) || rawDist)
     : (cityParts[1] ?? "");
   const existingSubDistrict = prefill?.data.subdistrict ?? cityParts[2] ?? "";
 

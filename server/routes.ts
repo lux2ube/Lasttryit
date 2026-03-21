@@ -465,8 +465,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!apiKey) return res.status(503).json({ message: "OCR service not configured (DEEPSEEK_API_KEY missing)" });
 
       const docTypeHint = documentType === "passport"
-        ? "The source document is a Yemeni PASSPORT (جواز سفر). The MRZ line at the bottom encodes the passport number and dates."
-        : "The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني). There are two common layouts: the northern design (Republic of Yemen / Ministry of Interior header, separate fields for national number, name, birthplace, birthdate, blood type) and the southern design (single face with large national number prominently displayed).";
+        ? `The source document is a Yemeni PASSPORT (جواز سفر).
+PASSPORT-SPECIFIC RULES:
+- fullName MUST be the Arabic name (الاسم بالعربية / الاسم الثلاثي) — do NOT use the English/Latin romanized name from the MRZ zone or bio page header.
+- documentNumber: the passport number (P<YEM... line — take the alphanumeric code after P<YEM in MRZ, OR the number printed on the bio page labeled "رقم الجواز").
+- The MRZ zone has two lines of 44 characters. Line 1 starts with P<YEM. Line 2 format: [passportNo][check][nationality][YYMMDD=DOB][check][gender][YYMMDD=expiry][check][personalNo][check][check].
+  - Date of birth is characters 14–19 of MRZ line 2 (YYMMDD) — if YY ≥ 30 it is 1900s else 2000s.
+  - Expiry date is characters 22–27 of MRZ line 2 (YYMMDD).
+- issueDate: look for "تاريخ الإصدار" or "Date of Issue" on the bio page.
+- expiryDate: look for "تاريخ الانتهاء" / "تاريخ الصلاحية" / "Date of Expiry" on the bio page; OR decode MRZ characters 22–27 as YYMMDD.
+- placeOfBirth: look for "مكان الميلاد" — return Arabic text exactly as found.
+- gender: M in MRZ = male, F = female.`
+        : `The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني).
+ID-SPECIFIC RULES:
+- Two layouts exist: northern design (Republic of Yemen / Ministry of Interior header, fields for national number, name, birthplace, birthdate, blood type) and southern design (single face with large national number prominently displayed).
+- documentNumber appears after "الرقم الوطني:" — keep any dashes.
+- fullName appears after "الاسم:" — always Arabic.
+- placeOfBirth appears after "مكان الميلاد:" — may encode "governorate – district" separated by dash or space.
+- The ID front typically does NOT have an expiry date — leave expiryDate null unless explicitly printed.
+- Split placeOfBirth into governorate and district when it contains " - " or " – " or " / ".`;
 
       const prompt = `You are a data extraction specialist for Yemeni identity documents. You will receive raw OCR text scanned from a document and must extract structured fields from it.
 
@@ -479,27 +496,27 @@ ${rawText}
 
 Extract the following fields and return ONLY a valid JSON object (no markdown, no explanation):
 {
-  "fullName": "<full Arabic name as on document, or null>",
-  "documentNumber": "<national ID number or passport number, digits and dashes only, or null>",
+  "fullName": "<full Arabic name ONLY — never English/Latin romanization, or null>",
+  "documentNumber": "<national ID number or passport number, or null>",
   "dateOfBirth": "<YYYY-MM-DD format, or null>",
-  "placeOfBirth": "<place of birth exactly as written, or null>",
-  "governorate": "<Yemeni governorate (محافظة) in Arabic, or null>",
-  "district": "<district (مديرية) in Arabic, or null>",
+  "placeOfBirth": "<place of birth in Arabic exactly as written, or null>",
+  "governorate": "<Yemeni governorate (محافظة) in Arabic extracted from placeOfBirth or address fields, or null>",
+  "district": "<district/city (مديرية) in Arabic extracted from placeOfBirth or address fields, or null>",
   "subdistrict": "<uzlah (عزلة) in Arabic, or null>",
   "issueDate": "<YYYY-MM-DD format, or null>",
-  "expiryDate": "<YYYY-MM-DD format, or null>",
+  "expiryDate": "<YYYY-MM-DD format — for passports check bio page AND MRZ chars 22-27, or null>",
   "gender": "<male|female|null>",
   "bloodType": "<blood type like A+/B-/O+/AB+, or null>",
   "docConfidence": <0-100 confidence in extraction quality>
 }
 
-Rules:
-- Dates like 1992/05/22 or 22/05/1992 → convert to YYYY-MM-DD
-- For national IDs the number appears after "الرقم الوطني:" — may have dashes (keep them)
-- fullName appears after "الاسم:" or "الاسم"
-- Place of birth appears after "مكان الميلاد:" — split into governorate and district if possible
-- If a field is not found in the text, return null for that field
-- Return ONLY the JSON object`;
+General rules:
+- ALL name and place fields must be in Arabic script — never return English/Latin romanized text for these fields.
+- Dates like 1992/05/22 or 22/05/1992 or 22-05-1992 → convert to YYYY-MM-DD.
+- If placeOfBirth contains " - " or " – " or " / ", the part before the separator is likely the governorate and the part after is the district — populate both governorate and district fields accordingly.
+- Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي) before returning their values.
+- If a field is not found in the text, return null for that field.
+- Return ONLY the JSON object — no markdown fences, no explanation.`;
 
       const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
@@ -510,7 +527,7 @@ Rules:
         body: JSON.stringify({
           model: "deepseek-chat",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 600,
+          max_tokens: 800,
           temperature: 0.1,
         }),
       });
