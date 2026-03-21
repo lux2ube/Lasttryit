@@ -28,6 +28,7 @@ import { runKycGate, detectStructuring, getLiquidityStatus, autoExtractFeeEntrie
 import { getWalletInfo, sendUSDT, validateAddress, checksumAddress } from "./blockchain-service";
 import { cryptoSends, cryptoNetworks, customerGroups, customers, yemenGovernorates, yemenDistricts, yemenUzaal, yemenVillages } from "@shared/schema";
 import crypto from "crypto";
+import * as XLSX from "xlsx";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -389,6 +390,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { console.error(e); res.status(500).json({ message: "Internal server error" }); }
   });
 
+  // ─── CUSTOMER EXCEL EXPORT ────────────────────────────────────────────────
+  // GET /api/customers/export/excel?from=CUST-00001&to=CUST-00050
+  app.get("/api/customers/export/excel", requireAuth, async (req, res) => {
+    try {
+      const { from: fromId, to: toId } = req.query as { from?: string; to?: string };
+
+      // Fetch all customers sorted by customerId
+      const allCustomers = await db
+        .select({
+          customerId: customers.customerId,
+          fullName: customers.fullName,
+          phonePrimary: customers.phonePrimary,
+        })
+        .from(customers)
+        .orderBy(customers.customerId);
+
+      // Filter by customerId range if provided
+      let filtered = allCustomers;
+      if (fromId || toId) {
+        filtered = allCustomers.filter(c => {
+          const id = c.customerId ?? "";
+          const afterFrom = !fromId || id.localeCompare(fromId, undefined, { numeric: true }) >= 0;
+          const beforeTo  = !toId   || id.localeCompare(toId,   undefined, { numeric: true }) <= 0;
+          return afterFrom && beforeTo;
+        });
+      }
+
+      const rows = filtered.map(c => ({
+        "Customer ID": c.customerId ?? "",
+        "Name":        c.fullName ?? "",
+        "Phone Number": c.phonePrimary ?? "",
+      }));
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      // Set column widths
+      ws["!cols"] = [{ wch: 14 }, { wch: 35 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, ws, "Customers");
+
+      const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      const fromLabel = fromId ?? "start";
+      const toLabel   = toId   ?? "end";
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="customers_${fromLabel}_to_${toLabel}.xlsx"`);
+      res.send(buf);
+    } catch (e: any) {
+      console.error("[Export] Excel error:", e.message);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ─── CUSTOMER WALLETS ─────────────────────────────────────────────────────
   app.get("/api/customers/:customerId/wallets", requireAuth, async (req, res) => {
     try {
@@ -454,6 +506,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Flow: client runs Tesseract.js to extract raw text from the image, then
   // sends that text to this endpoint which asks Deepseek to structure it into
   // clean fields. Deepseek text models handle Arabic perfectly.
+  // Cache governorate list in memory (loaded once, safe since list is static)
+  let _govCache: string[] | null = null;
+  async function getGovNameList(): Promise<string[]> {
+    if (_govCache) return _govCache;
+    const rows = await db.select({ nameAr: yemenGovernorates.nameAr }).from(yemenGovernorates).orderBy(yemenGovernorates.id);
+    _govCache = rows.map(r => r.nameAr).filter(Boolean) as string[];
+    return _govCache;
+  }
+
   app.post("/api/ocr/scan-document", requireAuth, async (req, res) => {
     try {
       const { rawText, documentType } = req.body as { rawText: string; documentType?: string };
@@ -463,6 +524,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const apiKey = process.env.DEEPSEEK_API_KEY;
       if (!apiKey) return res.status(503).json({ message: "OCR service not configured (DEEPSEEK_API_KEY missing)" });
+
+      // Load DB governorate list for exact matching
+      const govNames = await getGovNameList();
 
       const docTypeHint = documentType === "passport"
         ? `The source document is a Yemeni PASSPORT (جواز سفر).
@@ -485,6 +549,8 @@ ID-SPECIFIC RULES:
 - The ID front typically does NOT have an expiry date — leave expiryDate null unless explicitly printed.
 - Split placeOfBirth into governorate and district when it contains " - " or " – " or " / ".`;
 
+      const govListStr = govNames.slice(0, 22).join(" | ");  // all 22 Yemeni governorates
+
       const prompt = `You are a data extraction specialist for Yemeni identity documents. You will receive raw OCR text scanned from a document and must extract structured fields from it.
 
 ${docTypeHint}
@@ -499,8 +565,8 @@ Extract the following fields and return ONLY a valid JSON object (no markdown, n
   "fullName": "<full Arabic name ONLY — never English/Latin romanization, or null>",
   "documentNumber": "<national ID number or passport number, or null>",
   "dateOfBirth": "<YYYY-MM-DD format, or null>",
-  "placeOfBirth": "<place of birth in Arabic exactly as written, or null>",
-  "governorate": "<Yemeni governorate (محافظة) in Arabic extracted from placeOfBirth or address fields, or null>",
+  "placeOfBirth": "<place of birth in Arabic exactly as written on the document, or null>",
+  "governorate": "<MUST be one of the exact governorate names listed below — pick the closest match, or null if no match>",
   "district": "<district/city (مديرية) in Arabic extracted from placeOfBirth or address fields, or null>",
   "subdistrict": "<uzlah (عزلة) in Arabic, or null>",
   "issueDate": "<YYYY-MM-DD format, or null>",
@@ -509,6 +575,10 @@ Extract the following fields and return ONLY a valid JSON object (no markdown, n
   "bloodType": "<blood type like A+/B-/O+/AB+, or null>",
   "docConfidence": <0-100 confidence in extraction quality>
 }
+
+GOVERNORATE STRICT RULE — the "governorate" field MUST be chosen EXACTLY (character for character) from this list, or null:
+${govListStr}
+Do NOT invent a governorate name. If the extracted place does not match any name in the list exactly, return null for governorate.
 
 General rules:
 - ALL name and place fields must be in Arabic script — never return English/Latin romanized text for these fields.
@@ -519,6 +589,7 @@ General rules:
   b. If placeOfBirth contains " - " or " – " separating two parts, the first (non-country) part is the governorate and the second part is the district. Remove any date portion (YYYY/MM/DD) found in the placeOfBirth string.
   c. Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي) before returning their values.
 - For passports: if Arabic fullName is not visible in the text, return null — do NOT construct from English MRZ components.
+- For passports: "documentNumber" — look for 7-9 digit number near "Passport No" / "رقم الجواز" on the bio page; also try MRZ line 2 (chars 1-9 before first check digit).
 - If a field is not found in the text, return null for that field.
 - Return ONLY the JSON object — no markdown fences, no explanation.`;
 
@@ -624,6 +695,40 @@ General rules:
         extracted.district = extracted.district
           .replace(/^(مديرية|حي|قضاء)\s+/u, "")
           .trim();
+      }
+
+      // 6. Validate governorate against DB list (reject any value not in the list)
+      if (extracted.governorate && govNames.length > 0) {
+        const normalise = (s: string) => s.replace(/\s+/g, " ").trim();
+        const normExtracted = normalise(extracted.governorate);
+        const exactMatch = govNames.find(g => normalise(g) === normExtracted);
+        if (!exactMatch) {
+          // Try fuzzy: does any gov name contain or be contained by the extracted value?
+          const fuzzy = govNames.find(g => normalise(g).includes(normExtracted) || normExtracted.includes(normalise(g)));
+          extracted.governorate = fuzzy ?? null;
+        } else {
+          extracted.governorate = exactMatch;
+        }
+      }
+
+      // 7. Passport number fallback — try to extract from raw text if AI missed it
+      if (documentType === "passport" && !extracted.documentNumber) {
+        // Pattern A: near "Passport No" or "رقم الجواز"
+        const ppLabelMatch = rawText.match(
+          /(?:رقم\s*الجواز|Passport\s*No\.?)\s*[:\s#]*([A-Z]?\d{7,9})/i
+        );
+        if (ppLabelMatch) {
+          extracted.documentNumber = ppLabelMatch[1];
+        } else {
+          // Pattern B: standalone 8-9 digit number not part of a date
+          const candidates = [...rawText.matchAll(/(?<!\d)([A-Z]\d{7}|\d{8,9})(?!\d)/g)];
+          const ppNum = candidates.find(m => {
+            const v = m[1];
+            // Exclude obvious dates (year 19xx or 20xx as start)
+            return !/^(19|20)\d{6}$/.test(v);
+          });
+          if (ppNum) extracted.documentNumber = ppNum[1];
+        }
       }
 
       res.json({ success: true, extracted, rawResponse: content });

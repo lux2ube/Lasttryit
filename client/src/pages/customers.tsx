@@ -24,7 +24,7 @@ import {
   ShieldCheck, UserX, Wallet, Star, Loader2, History,
   TrendingUp, TrendingDown, FileText, Upload, X, Tag,
   Eye, ScanLine, Minus, Camera, AlertCircle, UserCheck,
-  ChevronRight, RefreshCw,
+  ChevronRight, RefreshCw, FileDown,
 } from "lucide-react";
 import { InfoTip } from "@/components/ui/info-tip";
 import { format } from "date-fns";
@@ -1389,7 +1389,7 @@ function CustomerFormPage({
       city:               existingGov,
       district:           existingDistrict,
       subDistrict:        existingSubDistrict,
-      address:            (customer?.demographics as any)?.address     ?? "",
+      address:            prefill?.data.placeOfBirth ?? (customer?.demographics as any)?.address ?? "",
     },
   });
 
@@ -1957,22 +1957,22 @@ function CustomerFormPage({
 
           {/* ── Pre-save duplicate warning ───────────────────── */}
           {preSaveWarning && (
-            <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 p-4 space-y-3">
+            <div className="rounded-xl border border-red-300 bg-red-50 dark:border-red-700/50 dark:bg-red-900/20 p-4 space-y-3">
               <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                    Possible duplicate — {preSaveWarning.customers.length} similar customer{preSaveWarning.customers.length > 1 ? "s" : ""} found
+                  <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+                    Duplicate customer blocked — {preSaveWarning.customers.length} existing customer{preSaveWarning.customers.length > 1 ? "s" : ""} found
                   </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                    Customers below share the same first name or document ID. Please confirm this is a different person before creating.
+                  <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
+                    A customer with the same name or document ID already exists. Two customers cannot have the same name or phone number. Please open the existing record or go back and correct the details.
                   </p>
                 </div>
               </div>
               <div className="space-y-2">
                 {preSaveWarning.customers.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white dark:bg-muted/20 border border-amber-200 dark:border-amber-800/40">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0 font-bold text-amber-700 dark:text-amber-400 text-xs">
+                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white dark:bg-muted/20 border border-red-200 dark:border-red-800/40">
+                    <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0 font-bold text-red-700 dark:text-red-400 text-xs">
                       {c.fullName.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1992,7 +1992,6 @@ function CustomerFormPage({
                       onClick={() => {
                         setPreSaveWarning(null);
                         onCancel();
-                        // Navigate to edit existing customer
                         setTimeout(() => {
                           sessionStorage.setItem("cust_editId", c.id);
                           sessionStorage.setItem("cust_formMode", "edit");
@@ -2009,20 +2008,10 @@ function CustomerFormPage({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="flex-1"
+                  className="w-full"
                   onClick={() => setPreSaveWarning(null)}
                 >
-                  Go Back
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
-                  onClick={() => { setPreSaveWarning(null); doSave(preSaveWarning.pendingData); }}
-                  disabled={mutation.isPending}
-                  data-testid="button-save-anyway"
-                >
-                  {mutation.isPending ? "Saving..." : "Save Anyway — Different Person"}
+                  Go Back &amp; Edit
                 </Button>
               </div>
             </div>
@@ -2705,6 +2694,10 @@ export default function Customers() {
     data: ScannedData; docType: string;
     imageData: { name: string; type: string; size: number; data: string } | null;
   } | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -2814,6 +2807,9 @@ export default function Customers() {
           <p className="text-xs sm:text-sm text-muted-foreground">{customerList?.length ?? 0} customers</p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} data-testid="button-export-excel" className="h-8 px-2 sm:px-3">
+            <FileDown className="w-4 h-4 sm:mr-1.5" /><span className="hidden sm:inline">Export</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setScanOpen(true)} data-testid="button-scan-document" className="h-8 px-2 sm:px-3">
             <Camera className="w-4 h-4 sm:mr-1.5" /><span className="hidden sm:inline">Scan</span>
           </Button>
@@ -2961,6 +2957,78 @@ export default function Customers() {
       {historyCustomer && (
         <CustomerHistoryDialog customer={historyCustomer} onClose={() => setHistoryCustomer(null)} />
       )}
+
+      {/* ── Excel Export Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5" /> Export Customers to Excel
+            </DialogTitle>
+            <DialogDescription>
+              Select a customer ID range. Leave both fields empty to export all customers.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">From Customer ID</label>
+              <Input
+                data-testid="input-export-from"
+                placeholder="e.g. CUST-00001"
+                value={exportFrom}
+                onChange={e => setExportFrom(e.target.value.trim())}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">To Customer ID</label>
+              <Input
+                data-testid="input-export-to"
+                placeholder="e.g. CUST-00050"
+                value={exportTo}
+                onChange={e => setExportTo(e.target.value.trim())}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setExportOpen(false)}>Cancel</Button>
+            <Button
+              data-testid="button-download-excel"
+              disabled={exportLoading}
+              onClick={async () => {
+                setExportLoading(true);
+                try {
+                  const params = new URLSearchParams();
+                  if (exportFrom) params.set("from", exportFrom);
+                  if (exportTo)   params.set("to",   exportTo);
+                  const resp = await fetch(`/api/customers/export/excel?${params.toString()}`, {
+                    credentials: "include",
+                  });
+                  if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ message: "Export failed" }));
+                    toast({ title: "Export failed", description: err.message, variant: "destructive" });
+                    return;
+                  }
+                  const blob = await resp.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `customers_${exportFrom || "start"}_to_${exportTo || "end"}.xlsx`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setExportOpen(false);
+                  toast({ title: "Export complete", description: "Excel file downloaded." });
+                } catch (e: any) {
+                  toast({ title: "Export failed", description: e.message, variant: "destructive" });
+                } finally {
+                  setExportLoading(false);
+                }
+              }}
+            >
+              {exportLoading ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />Downloading…</> : <><FileDown className="w-4 h-4 mr-1.5" />Download Excel</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
