@@ -343,10 +343,10 @@ export default function Currencies() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
-      <div className="flex items-center justify-between gap-4 mb-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Currencies</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Currencies</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Fiat and crypto currencies — linked to exchange rates, CoA accounts, and records
           </p>

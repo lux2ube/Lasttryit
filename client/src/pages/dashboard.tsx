@@ -245,17 +245,17 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full overflow-auto bg-muted/20">
-      <div className="p-6 space-y-8">
+      <div className="p-3 sm:p-6 space-y-6 sm:space-y-8">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="flex items-end justify-between">
+        <div className="flex items-end justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Welcome back, <span className="font-medium text-foreground">{user?.fullName?.split(" ")[0]}</span> — here's your operations snapshot.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background border border-border rounded-xl px-3 py-2">
+          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground bg-background border border-border rounded-xl px-3 py-2">
             <Calendar className="w-3.5 h-3.5" />
             {format(new Date(), "EEEE, MMMM d yyyy")}
           </div>

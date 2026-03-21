@@ -472,9 +472,9 @@ export default function ProvidersPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/95">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border bg-background/95 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold">Providers</h1>
+          <h1 className="text-lg sm:text-xl font-bold">Providers</h1>
           <p className="text-sm text-muted-foreground">
             Payment channels — defines the customer field type, fee rates charged, expenses incurred, and transaction limits
           </p>
@@ -485,7 +485,7 @@ export default function ProvidersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4 px-6 pt-4 pb-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 px-3 sm:px-6 pt-4 pb-2">
         <div className="rounded-lg border border-border p-3 bg-muted/30">
           <div className="text-2xl font-bold text-foreground">{providerList.length}</div>
           <div className="text-xs text-muted-foreground font-medium mt-0.5">Total Channels</div>

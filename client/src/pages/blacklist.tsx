@@ -486,11 +486,11 @@ export default function Blacklist() {
   });
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2">
             <ShieldAlert className="w-6 h-6 text-destructive" />
             Blacklist Manager
           </h1>
@@ -509,7 +509,7 @@ export default function Blacklist() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <Card className="hover-elevate border-destructive/20 bg-destructive/5">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-destructive/10 text-destructive">

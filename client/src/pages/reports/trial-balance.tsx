@@ -47,14 +47,14 @@ export default function TrialBalance() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 space-y-4">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 space-y-4">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Scale className="w-5 h-5 text-primary" />
-            <h1 className="text-2xl font-bold text-foreground">Trial Balance</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Trial Balance</h1>
             {data && (
               <Badge className={data.balanced ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                 {data.balanced ? <><CheckCircle2 className="w-3 h-3 mr-1" />Balanced</> : <><XCircle className="w-3 h-3 mr-1" />Unbalanced</>}

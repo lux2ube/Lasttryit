@@ -131,7 +131,7 @@ export default function AccountingPeriodsPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-3 sm:p-6">
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">Loading periods…</div>
         ) : periods.length === 0 ? (

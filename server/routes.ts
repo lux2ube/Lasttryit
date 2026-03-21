@@ -99,7 +99,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.use(helmet({
-    contentSecurityPolicy: isProd ? undefined : false,
+    contentSecurityPolicy: isProd ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'", "blob:"],
+        workerSrc: ["'self'", "blob:"],
+        connectSrc: ["'self'", "https:", "wss:"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'", "data:", "https:"],
+        objectSrc: ["'none'"],
+      },
+    } : false,
     crossOriginEmbedderPolicy: false,
   }));
 

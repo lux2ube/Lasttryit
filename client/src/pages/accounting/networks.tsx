@@ -233,11 +233,11 @@ export default function Networks() {
   const openEdit = (n: CryptoNetwork) => { setEditing(n); setDialogOpen(true); };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
             <Globe className="h-6 w-6 text-primary" />
             Crypto Networks
           </h1>

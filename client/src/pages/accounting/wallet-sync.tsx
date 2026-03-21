@@ -342,7 +342,7 @@ export default function WalletSyncPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/95">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border bg-background/95 flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Wallet className="w-5 h-5 text-primary" />
@@ -358,7 +358,7 @@ export default function WalletSyncPage() {
       </div>
 
       {/* API Key Status Banner */}
-      <div className="px-6 pt-4">
+      <div className="px-3 sm:px-6 pt-4">
         {ankrStatus?.configured ? (
           <Alert className="border-emerald-200 bg-emerald-50/50 dark:bg-emerald-900/10 dark:border-emerald-800/50">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -384,7 +384,7 @@ export default function WalletSyncPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 px-6 pt-4 pb-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-3 sm:px-6 pt-4 pb-2">
         <div className="rounded-lg border border-border p-3 bg-muted/30">
           <p className="text-2xl font-bold">{wallets.length}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Watched Wallets</p>
@@ -402,7 +402,7 @@ export default function WalletSyncPage() {
       </div>
 
       {/* Wallet List */}
-      <div className="flex-1 overflow-auto px-6 pb-6 space-y-3 mt-2">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-3 sm:pb-6 space-y-3 mt-2">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
         ) : wallets.length === 0 ? (

@@ -67,14 +67,14 @@ export default function IncomeStatement() {
   const netPositive = (data?.netIncome ?? 0) >= 0;
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 space-y-4">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 space-y-4">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-primary" />
-            <h1 className="text-2xl font-bold text-foreground">Income Statement</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Income Statement</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             Profit &amp; Loss — Revenue vs Expenses for the current accounting period

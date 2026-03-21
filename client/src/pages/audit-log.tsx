@@ -51,16 +51,16 @@ export default function AuditLog() {
   });
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
-      <div className="flex items-center justify-between gap-4 mb-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Audit Log</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Audit Log</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Complete history of all system events · {logs?.length ?? 0} entries
           </p>
         </div>
         <Select value={entityTypeFilter} onValueChange={setEntityTypeFilter}>
-          <SelectTrigger className="w-48" data-testid="select-entity-filter">
+          <SelectTrigger className="w-full sm:w-48" data-testid="select-entity-filter">
             <SelectValue placeholder="All Entities" />
           </SelectTrigger>
           <SelectContent>

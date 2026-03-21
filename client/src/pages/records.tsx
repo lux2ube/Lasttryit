@@ -1197,7 +1197,7 @@ function RecordFormPage({
             {!editRecord && (
               <div>
                 <p className="text-xs font-semibold mb-1 text-foreground">Type *</p>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   {(Object.entries(RECORD_TYPES) as [RecordCategory, typeof RECORD_TYPES[RecordCategory]][]).map(([key, def]) => {
                     const Icon = def.icon;
                     return (
@@ -2224,10 +2224,10 @@ export default function Records() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
-      <div className="flex items-center justify-between gap-4 mb-5">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Records</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Records</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Cash & Crypto inflow and outflow records</p>
         </div>
         <Button onClick={() => { setEditRecord(null); setFormMode("create"); }} data-testid="button-new-record">
@@ -2260,14 +2260,14 @@ export default function Records() {
       </div>
 
       {/* Search + Stage filter */}
-      <div className="flex gap-3 mb-4">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by number, customer, provider, hash..." className="pl-9 pr-9" />
           {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2"><X className="w-4 h-4 text-muted-foreground hover:text-foreground" /></button>}
         </div>
         <Select value={stageFilter} onValueChange={setStageFilter}>
-          <SelectTrigger className="w-44" data-testid="select-stage-filter">
+          <SelectTrigger className="w-full sm:w-44" data-testid="select-stage-filter">
             <Filter className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
             <SelectValue placeholder="Stage" />
           </SelectTrigger>

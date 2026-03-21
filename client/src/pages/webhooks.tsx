@@ -334,9 +334,9 @@ export default function Webhooks() {
   const assetAccounts = coaAccounts?.filter(a => a.type === "asset" && a.currency) ?? [];
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 space-y-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2" data-testid="text-page-title">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2" data-testid="text-page-title">
           <Webhook className="w-6 h-6 text-primary" />
           SMS Webhook Manager
         </h1>

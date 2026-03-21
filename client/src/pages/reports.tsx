@@ -69,18 +69,18 @@ export default function Reports() {
   const totalNet = (data?.totalFeeRevenue ?? 0) + (data?.totalSpread ?? 0);
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 space-y-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 space-y-6">
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Financial Reports</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Financial Reports</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             P&amp;L · Volume · Spread Analysis · AML Summary — aligned with IFRS &amp; AML standards
           </p>
         </div>
         <Select value={days} onValueChange={setDays}>
-          <SelectTrigger className="w-36" data-testid="select-period">
+          <SelectTrigger className="w-full sm:w-36" data-testid="select-period">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

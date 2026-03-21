@@ -84,7 +84,7 @@ function VariableFormPage({
   });
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 max-w-2xl">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 max-w-2xl">
       <div className="flex items-center gap-3 mb-6">
         <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back">
           <ArrowLeft className="h-4 w-4" />
@@ -243,10 +243,10 @@ export default function SystemVariables() {
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <div className="p-6 border-b">
-        <div className="flex items-center justify-between mb-4">
+      <div className="p-3 sm:p-6 border-b">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold" data-testid="page-title">System Variables</h1>
+            <h1 className="text-xl sm:text-2xl font-bold" data-testid="page-title">System Variables</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Central registry of currencies, networks, services and other domain constants
             </p>
@@ -286,7 +286,7 @@ export default function SystemVariables() {
         </div>
       </div>
 
-      <div className="flex-1 p-6 space-y-6">
+      <div className="flex-1 p-3 sm:p-6 space-y-6">
         {isLoading ? (
           <div className="flex items-center justify-center h-40 text-muted-foreground">
             <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading…

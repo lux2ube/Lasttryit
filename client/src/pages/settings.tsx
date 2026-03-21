@@ -218,9 +218,9 @@ export default function SettingsPage() {
   }, {} as Record<string, SystemSetting[]>) ?? {};
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">System Settings</h1>
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
+      <div className="mb-4">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">System Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           {canEdit ? "Configure system parameters and policies" : "View system configuration (read-only)"}
         </p>

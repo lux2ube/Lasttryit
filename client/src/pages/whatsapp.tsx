@@ -229,10 +229,10 @@ export default function WhatsAppPage() {
   };
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-6">
+    <div className="p-3 sm:p-6 max-w-[1400px] mx-auto space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+        <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
           <MessageCircle className="w-6 h-6 text-emerald-600" />
           WhatsApp Notifications
         </h1>

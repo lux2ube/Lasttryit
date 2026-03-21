@@ -204,9 +204,9 @@ export default function ExchangeRatesPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/95">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border bg-background/95 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold">Exchange Rates</h1>
+          <h1 className="text-lg sm:text-xl font-bold">Exchange Rates</h1>
           <p className="text-sm text-muted-foreground">
             System buy/sell rates — auto-filled on new cash records, editable per record. Base: <strong>{baseCurrency?.code ?? "USD"}</strong>
           </p>

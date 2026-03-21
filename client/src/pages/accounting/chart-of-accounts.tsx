@@ -352,9 +352,9 @@ export default function ChartOfAccountsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/95">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border bg-background/95 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold">Chart of Accounts</h1>
+          <h1 className="text-lg sm:text-xl font-bold">Chart of Accounts</h1>
           <p className="text-sm text-muted-foreground">Double-entry accounting backbone — all accounts classified by type</p>
         </div>
         <Button onClick={() => { setEditTarget(undefined); setFormOpen(true); }} data-testid="button-new-account">
@@ -363,7 +363,7 @@ export default function ChartOfAccountsPage() {
       </div>
 
       {/* Summary bars */}
-      <div className="grid grid-cols-5 gap-3 px-6 pt-4 pb-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 px-3 sm:px-6 pt-4 pb-2">
         {typeOrder.map(t => (
           <div key={t} className={`rounded-lg p-3 ${ACCOUNT_TYPE_COLORS[t]}`}>
             <div className="text-lg font-bold">{(summary as any)[t]}</div>

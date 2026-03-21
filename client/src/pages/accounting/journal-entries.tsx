@@ -657,9 +657,9 @@ export default function JournalEntriesPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/95">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border bg-background/95 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold">Journal Entries</h1>
+          <h1 className="text-lg sm:text-xl font-bold">Journal Entries</h1>
           <p className="text-sm text-muted-foreground">The ledger engine — every financial event recorded as double-entry (Debits = Credits)</p>
         </div>
         {canCreate && (
@@ -670,7 +670,7 @@ export default function JournalEntriesPage() {
       </div>
 
       {/* KPI summary */}
-      <div className="grid grid-cols-4 gap-3 px-6 py-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 sm:px-6 py-3">
         {[
           { label: "Total Entries",    value: entries.length, color: "text-foreground" },
           { label: "Draft",            value: draftCount,     color: "text-yellow-600 dark:text-yellow-400" },

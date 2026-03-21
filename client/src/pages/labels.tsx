@@ -208,10 +208,10 @@ export default function Labels() {
   const inactiveCount = labelList?.filter(l => !l.isActive).length ?? 0;
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
-      <div className="flex items-center justify-between gap-4 mb-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Labels</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Labels</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Classify and group customers with custom labels
           </p>

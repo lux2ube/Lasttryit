@@ -122,14 +122,14 @@ export default function CustomerLedger() {
   const toggleStmt = (id: string) => setShowStatement(p => ({ ...p, [id]: !p[id] }));
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 space-y-4">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 space-y-4">
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
-            <h1 className="text-2xl font-bold text-foreground">Customer Ledger</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Customer Ledger</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             Per-customer account balances and individual statements
