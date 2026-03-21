@@ -512,9 +512,13 @@ Extract the following fields and return ONLY a valid JSON object (no markdown, n
 
 General rules:
 - ALL name and place fields must be in Arabic script — never return English/Latin romanized text for these fields.
-- Dates like 1992/05/22 or 22/05/1992 or 22-05-1992 → convert to YYYY-MM-DD.
-- If placeOfBirth contains " - " or " – " or " / ", the part before the separator is likely the governorate and the part after is the district — populate both governorate and district fields accordingly.
-- Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي) before returning their values.
+- Dates like 1992/05/22 or 22/05/1992 or 22-05-1992 → convert to YYYY-MM-DD. Always prefer a year between 1950-2015 for date of birth when multiple options appear (discard OCR noise).
+- BLOOD TYPE: Look specifically for text immediately after "فصيلة الدم" or ":الدم" — common values are O+, O-, A+, A-, B+, B-, AB+, AB-. If you see a + or - near those labels, return the blood type.
+- PLACE OF BIRTH handling:
+  a. "اليمن" (Yemen) is the COUNTRY name, not a governorate — if placeOfBirth begins with "اليمن - X", treat X as the governorate.
+  b. If placeOfBirth contains " - " or " – " separating two parts, the first (non-country) part is the governorate and the second part is the district. Remove any date portion (YYYY/MM/DD) found in the placeOfBirth string.
+  c. Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي) before returning their values.
+- For passports: if Arabic fullName is not visible in the text, return null — do NOT construct from English MRZ components.
 - If a field is not found in the text, return null for that field.
 - Return ONLY the JSON object — no markdown fences, no explanation.`;
 
@@ -550,6 +554,76 @@ General rules:
         if (match) {
           try { extracted = JSON.parse(match[0]); } catch { /* leave empty */ }
         }
+      }
+
+      // ── Post-processing corrections ────────────────────────────────────
+      // 1. Blood type — try clean regex first, then OCR-garbling decoder
+      if (!extracted.bloodType) {
+        // Clean match: standard characters
+        const btClean = rawText.match(/(?:فصيلة\s*الدم|blood\s*type)[^A-Za-z\u0621-\u06FF\d]{0,5}([ABO]{1,2}[+-])/i);
+        if (btClean) {
+          extracted.bloodType = btClean[1];
+        } else {
+          // OCR often garbles O→ي, A→أ, B→ب, +→©  in Arabic mode
+          const btGarbled = rawText.match(/فصيلة\s*الدم[:\s]*([A-Za-zأإاوي\+©\-]{1,4})/);
+          if (btGarbled) {
+            const candidate = btGarbled[1]
+              .replace(/ي/g, "O").replace(/©/g, "+").replace(/0(?=[+-])/g, "O")
+              .replace(/أ/g, "A").replace(/ب/g, "B").trim();
+            if (/^(O|A|B|AB)[+-]$/.test(candidate)) extracted.bloodType = candidate;
+          }
+        }
+      }
+
+      // 1b. For passports: correct DOB year if OCR noise produced a pre-1950 year
+      if (documentType === "passport" && extracted.dateOfBirth) {
+        const dobYear = parseInt(extracted.dateOfBirth.slice(0, 4));
+        if (dobYear < 1950 || dobYear > 2010) {
+          // Find a plausible DOB year (1950-2010) anywhere in the raw text
+          const altYears = [...rawText.matchAll(/\b(19[5-9]\d|200\d|201[0-5])\b/g)].map(m => m[1]);
+          if (altYears.length > 0) {
+            extracted.dateOfBirth = altYears[0] + extracted.dateOfBirth.slice(4);
+          }
+        }
+      }
+
+      // 2. "اليمن" is the country name, NOT a governorate
+      if (extracted.governorate === "اليمن" || extracted.governorate === "Yemen") {
+        // district holds the real governorate in this case (Deepseek split wrong)
+        extracted.governorate = extracted.district ?? null;
+        extracted.district = null;
+      }
+
+      // 3. If placeOfBirth starts with "اليمن - X", derive governorate=X
+      if (!extracted.governorate && extracted.placeOfBirth) {
+        const pobClean = extracted.placeOfBirth.replace(/\d{4}[\/\-]\d{2}[\/\-]\d{2}/g, "").trim().replace(/\s*-\s*$/, "").trim();
+        const yemenMatch = pobClean.match(/^اليمن\s*[-–]\s*(.+)/);
+        if (yemenMatch) {
+          extracted.governorate = yemenMatch[1].split(/\s*[-–]\s*/)[0].trim();
+          const distPart = yemenMatch[1].split(/\s*[-–]\s*/)[1];
+          if (distPart) extracted.district = distPart.trim();
+        }
+      }
+
+      // 4. Strip date strings from placeOfBirth (combined field on new ID)
+      if (extracted.placeOfBirth) {
+        extracted.placeOfBirth = extracted.placeOfBirth
+          .replace(/\d{4}[\/\-]\d{2}[\/\-]\d{2}/g, "")
+          .replace(/\s*[-–]\s*$/, "")
+          .trim();
+      }
+
+      // 5. Strip "أمانة العاصمة" → keep just "أمانة العاصمة" (already correct), 
+      //    but remove أمانة prefix if it's separate from the name
+      if (extracted.governorate) {
+        extracted.governorate = extracted.governorate
+          .replace(/^(محافظة|مديرية)\s+/u, "")
+          .trim();
+      }
+      if (extracted.district) {
+        extracted.district = extracted.district
+          .replace(/^(مديرية|حي|قضاء)\s+/u, "")
+          .trim();
       }
 
       res.json({ success: true, extracted, rawResponse: content });
