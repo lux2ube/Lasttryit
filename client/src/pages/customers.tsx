@@ -1392,17 +1392,17 @@ function CustomerFormPage({
   });
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 max-w-3xl">
-      <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={onCancel} data-testid="button-back-customer">
-          <ArrowLeft className="w-4 h-4 mr-1.5" />Back
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6 max-w-3xl">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+        <Button variant="ghost" size="sm" onClick={onCancel} data-testid="button-back-customer" className="h-8 px-2 sm:px-3 shrink-0">
+          <ArrowLeft className="w-4 h-4 sm:mr-1.5" /><span className="hidden sm:inline">Back</span>
         </Button>
-        <div className="h-5 w-px bg-border" />
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Users className="w-4 h-4 text-primary" />
+        <div className="h-5 w-px bg-border shrink-0" />
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
           </div>
-          <h1 className="text-lg font-bold">{customer ? `Edit — ${customer.fullName}` : "New Customer"}</h1>
+          <h1 className="text-base sm:text-lg font-bold truncate">{customer ? `Edit — ${customer.fullName}` : "New Customer"}</h1>
         </div>
       </div>
 
@@ -1430,16 +1430,16 @@ function CustomerFormPage({
       <Form {...form}>
         <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="space-y-3">
           <Tabs defaultValue="personal">
-            <TabsList className="w-full">
-              <TabsTrigger value="personal"  className="flex-1">Personal Info</TabsTrigger>
-              <TabsTrigger value="kyc"       className="flex-1">KYC & Docs</TabsTrigger>
-              <TabsTrigger value="settings"  className="flex-1">Status & Groups</TabsTrigger>
-              {customer && <TabsTrigger value="wallets" className="flex-1">Wallets</TabsTrigger>}
+            <TabsList className="flex w-full overflow-x-auto">
+              <TabsTrigger value="personal"  className="flex-1 min-w-[80px] text-xs sm:text-sm whitespace-nowrap">Personal</TabsTrigger>
+              <TabsTrigger value="kyc"       className="flex-1 min-w-[80px] text-xs sm:text-sm whitespace-nowrap">KYC & Docs</TabsTrigger>
+              <TabsTrigger value="settings"  className="flex-1 min-w-[80px] text-xs sm:text-sm whitespace-nowrap">Status</TabsTrigger>
+              {customer && <TabsTrigger value="wallets" className="flex-1 min-w-[80px] text-xs sm:text-sm whitespace-nowrap">Wallets</TabsTrigger>}
             </TabsList>
 
             {/* ── Personal Info ──────────────────────────────── */}
             <TabsContent value="personal" className="space-y-3 pt-2">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <FormField control={form.control} name="firstName" render={({ field }) => (
                   <FormItem>
                     <FormLabel>First *</FormLabel>
@@ -2028,14 +2028,14 @@ function ScanDocumentDialog({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
+      <DialogContent className="w-full max-w-lg mx-auto h-[100dvh] sm:h-auto sm:max-h-[92vh] overflow-y-auto rounded-none sm:rounded-lg p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Camera className="w-4 h-4 text-primary" />
             Scan Identity Document
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Upload a photo of a Yemeni National ID (front) or Passport — AI will extract the data automatically
+            Take a photo or choose from gallery — AI will extract data automatically
           </DialogDescription>
         </DialogHeader>
 
@@ -2060,18 +2060,40 @@ function ScanDocumentDialog({
               ))}
             </div>
 
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileSelect} />
+            {/* Two hidden inputs — one for camera, one for gallery */}
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+            <input
+              ref={el => { if (el) (el as any).__cameraRef = true; }}
+              id="scan-camera-input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
 
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              data-testid="button-scan-upload"
-              className="w-full border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 hover:bg-primary/5 transition-colors"
-            >
-              <Camera className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm font-medium">Take photo or upload image</p>
-              <p className="text-xs text-muted-foreground mt-1">JPG, PNG · Max 10 MB</p>
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => document.getElementById("scan-camera-input")?.click()}
+                data-testid="button-scan-camera"
+                className="flex flex-col items-center gap-2 p-5 border-2 border-border rounded-xl hover:border-primary/50 hover:bg-primary/5 transition-colors"
+              >
+                <Camera className="w-8 h-8 text-primary/60" />
+                <span className="text-sm font-medium">Take Photo</span>
+                <span className="text-xs text-muted-foreground">Use camera</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                data-testid="button-scan-upload"
+                className="flex flex-col items-center gap-2 p-5 border-2 border-border rounded-xl hover:border-primary/50 hover:bg-primary/5 transition-colors"
+              >
+                <Upload className="w-8 h-8 text-primary/60" />
+                <span className="text-sm font-medium">Choose File</span>
+                <span className="text-xs text-muted-foreground">From gallery</span>
+              </button>
+            </div>
 
             <div className="rounded-lg bg-muted/40 p-3 space-y-1">
               <p className="text-xs font-medium text-muted-foreground">Tips for best results:</p>
@@ -2413,7 +2435,7 @@ function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onCl
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-full max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto rounded-none sm:rounded-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <History className="w-4 h-4 text-primary" />
@@ -2445,16 +2467,18 @@ function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onCl
             const key = `${r.type}-${r.direction}`;
             return (
               <div key={r.id} className="p-3 rounded-lg border border-border text-sm" data-testid={`history-rec-${r.id}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-mono text-xs text-muted-foreground">{r.recordNumber}</span>
-                  <Badge className={`text-xs ${recTypeColors[key] ?? ""}`}>{r.type} {r.direction}</Badge>
-                  <Badge className={`text-xs ${stageColors[r.processingStage] ?? ""}`}>{r.processingStage.replace("_"," ")}</Badge>
-                  <span className="text-xs text-muted-foreground ml-auto">{format(new Date(r.createdAt), "MMM d, yyyy")}</span>
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-mono text-[10px] text-muted-foreground">{r.recordNumber}</span>
+                    <Badge className={`text-[10px] px-1.5 ${recTypeColors[key] ?? ""}`}>{r.type} {r.direction}</Badge>
+                    <Badge className={`text-[10px] px-1.5 ${stageColors[r.processingStage] ?? ""}`}>{r.processingStage.replace("_"," ")}</Badge>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{format(new Date(r.createdAt), "MMM d, yy")}</span>
                 </div>
-                <div className="flex items-center gap-3 text-sm">
+                <div className="flex items-center gap-2 text-sm flex-wrap">
                   <span className="font-bold">{parseFloat(r.amount).toLocaleString()} {r.currency}</span>
-                  {r.usdEquivalent && <span className="text-muted-foreground">≈ ${parseFloat(r.usdEquivalent).toFixed(2)}</span>}
-                  {(r.accountName || r.assetOrProviderName) && <span className="text-muted-foreground">{r.accountName ?? r.assetOrProviderName}</span>}
+                  {r.usdEquivalent && <span className="text-xs text-muted-foreground">≈ ${parseFloat(r.usdEquivalent).toFixed(2)}</span>}
+                  {(r.accountName || r.assetOrProviderName) && <span className="text-xs text-muted-foreground truncate">{r.accountName ?? r.assetOrProviderName}</span>}
                 </div>
               </div>
             );
@@ -2586,7 +2610,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
       {scanOpen && (
         <ScanDocumentDialog
           onClose={() => setScanOpen(false)}
@@ -2594,30 +2618,34 @@ export default function Customers() {
           onEditExisting={handleScanEditExisting}
         />
       )}
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Customers</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{customerList?.length ?? 0} customers in the system</p>
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground leading-tight">Customers</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">{customerList?.length ?? 0} customers</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setScanOpen(true)} data-testid="button-scan-document">
-            <Camera className="w-4 h-4 mr-2" />Scan Document
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setScanOpen(true)} data-testid="button-scan-document" className="h-8 px-2 sm:px-3">
+            <Camera className="w-4 h-4 sm:mr-1.5" /><span className="hidden sm:inline">Scan</span>
           </Button>
-          <Button onClick={() => { setEditCustomer(null); setScannedPrefill(null); try { sessionStorage.removeItem("cust_editId"); } catch {} setFormMode("create"); }} data-testid="button-new-customer">
-            <Plus className="w-4 h-4 mr-2" />New Customer
+          <Button size="sm" onClick={() => { setEditCustomer(null); setScannedPrefill(null); try { sessionStorage.removeItem("cust_editId"); } catch {} setFormMode("create"); }} data-testid="button-new-customer" className="h-8 px-2 sm:px-3">
+            <Plus className="w-4 h-4 sm:mr-1.5" /><span className="hidden sm:inline">New Customer</span>
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-4">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input data-testid="input-search" placeholder="Search by name, phone, ID..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-        </div>
+      {/* Search bar */}
+      <div className="relative mb-2">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input data-testid="input-search" placeholder="Search by name, phone, ID..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-9" />
+      </div>
+
+      {/* Filters row — scrollable on mobile */}
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-none">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40" data-testid="select-status-filter">
-            <Filter className="w-3.5 h-3.5 mr-1 text-muted-foreground" /><SelectValue placeholder="Status" />
+          <SelectTrigger className="h-8 text-xs w-auto min-w-[100px] shrink-0" data-testid="select-status-filter">
+            <Filter className="w-3 h-3 mr-1 text-muted-foreground" /><SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
@@ -2626,18 +2654,18 @@ export default function Customers() {
           </SelectContent>
         </Select>
         <Select value={verificationFilter} onValueChange={setVerificationFilter}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="KYC Status" /></SelectTrigger>
+          <SelectTrigger className="h-8 text-xs w-auto min-w-[110px] shrink-0"><SelectValue placeholder="KYC" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Verification</SelectItem>
+            <SelectItem value="all">All KYC</SelectItem>
             <SelectItem value="verified">Verified</SelectItem>
             <SelectItem value="unverified">Unverified</SelectItem>
             <SelectItem value="blocked">Blocked</SelectItem>
           </SelectContent>
         </Select>
         <Select value={riskFilter} onValueChange={setRiskFilter}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Risk Level" /></SelectTrigger>
+          <SelectTrigger className="h-8 text-xs w-auto min-w-[100px] shrink-0"><SelectValue placeholder="Risk" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Risk Levels</SelectItem>
+            <SelectItem value="all">All Risk</SelectItem>
             <SelectItem value="low">Low</SelectItem>
             <SelectItem value="medium">Medium</SelectItem>
             <SelectItem value="high">High</SelectItem>
@@ -2665,59 +2693,72 @@ export default function Customers() {
             const verifCfg   = verificationConfig[customer.verificationStatus];
             const riskCfg    = riskConfig[customer.riskLevel];
             return (
-              <Card key={customer.id} className="hover-elevate cursor-pointer" data-testid={`card-customer-${customer.id}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 font-bold text-primary text-sm">
+              <Card key={customer.id} className="hover-elevate" data-testid={`card-customer-${customer.id}`}>
+                <CardContent className="p-3 sm:p-4">
+                  {/* Top row: avatar + name/phone + action buttons */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 font-bold text-primary text-xs sm:text-sm">
                       {customer.fullName.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase()}
                     </div>
+
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-foreground text-sm">{customer.fullName}</p>
+                      {/* Name + blacklist */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-semibold text-foreground text-sm leading-tight">{customer.fullName}</p>
                         {customer.isBlacklisted && (
-                          <Badge variant="destructive" className="text-xs"><ShieldAlert className="w-3 h-3 mr-1" />Blacklisted</Badge>
-                        )}
-                        {customer.loyaltyGroup && customer.loyaltyGroup !== "standard" && (
-                          <Badge variant="outline" className="text-xs capitalize">{customer.loyaltyGroup}</Badge>
-                        )}
-                        {customer.labels?.slice(0, 3).map(l => (
-                          <Badge key={l} variant="secondary" className="text-xs">{l}</Badge>
-                        ))}
-                        {(customer.labels?.length ?? 0) > 3 && (
-                          <Badge variant="secondary" className="text-xs">+{(customer.labels?.length ?? 0) - 3}</Badge>
+                          <Badge variant="destructive" className="text-[10px] px-1.5 py-0"><ShieldAlert className="w-2.5 h-2.5 mr-0.5" />BL</Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      {/* Phone + ID */}
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" />{customer.phonePrimary}</span>
-                        {customer.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{customer.email}</span>}
-                        {(customer.demographics as any)?.city && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />{(customer.demographics as any).city}</span>
-                        )}
-                        <span className="text-xs font-mono text-muted-foreground">{customer.customerId}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground/70">{customer.customerId}</span>
                       </div>
+                      {/* City (hidden on very small screens) */}
+                      {(customer.demographics as any)?.city && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1 truncate">
+                          <Globe className="w-2.5 h-2.5 shrink-0" />
+                          <span className="truncate">{(customer.demographics as any).city}</span>
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                      {statusCfg && <Badge className={`text-xs ${statusCfg.className}`}>{statusCfg.label}</Badge>}
-                      {verifCfg  && <Badge className={`text-xs ${verifCfg.className}`}>{verifCfg.label}</Badge>}
-                      {riskCfg   && <Badge className={`text-xs ${riskCfg.className}`}>{riskCfg.label} Risk</Badge>}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => setHistoryCustomer(customer)} title="View History" data-testid={`button-history-customer-${customer.id}`}>
-                        <History className="w-4 h-4" />
+
+                    {/* Action buttons — always visible, compact */}
+                    <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setHistoryCustomer(customer)} title="History" data-testid={`button-history-customer-${customer.id}`}>
+                        <History className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setEditCustomer(customer); try { sessionStorage.setItem("cust_editId", customer.id); } catch {} setFormMode("edit"); }} data-testid={`button-edit-customer-${customer.id}`}>
-                        <Edit2 className="w-4 h-4" />
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setEditCustomer(customer); try { sessionStorage.setItem("cust_editId", customer.id); } catch {} setFormMode("edit"); }} data-testid={`button-edit-customer-${customer.id}`}>
+                        <Edit2 className="w-3.5 h-3.5" />
                       </Button>
                       {(user?.role === "admin" || user?.role === "operations_manager") && (
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                           onClick={() => { if (confirm(`Delete ${customer.fullName}?`)) deleteMutation.mutate(customer.id); }}
                           data-testid={`button-delete-customer-${customer.id}`}>
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-4 text-xs text-muted-foreground">
+
+                  {/* Status badges row */}
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {statusCfg && <Badge className={`text-[10px] px-1.5 py-0 h-4 ${statusCfg.className}`}>{statusCfg.label}</Badge>}
+                    {verifCfg  && <Badge className={`text-[10px] px-1.5 py-0 h-4 ${verifCfg.className}`}>{verifCfg.label}</Badge>}
+                    {riskCfg   && <Badge className={`text-[10px] px-1.5 py-0 h-4 ${riskCfg.className}`}>{riskCfg.label}</Badge>}
+                    {customer.loyaltyGroup && customer.loyaltyGroup !== "standard" && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 capitalize">{customer.loyaltyGroup}</Badge>
+                    )}
+                    {customer.labels?.slice(0, 2).map(l => (
+                      <Badge key={l} variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{l}</Badge>
+                    ))}
+                    {(customer.labels?.length ?? 0) > 2 && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">+{(customer.labels?.length ?? 0) - 2}</Badge>
+                    )}
+                  </div>
+
+                  {/* Bottom stats row */}
+                  <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span>{customer.totalTransactions} records</span>
                     <span>Vol: ${parseFloat(customer.totalVolumeUsd || "0").toLocaleString()}</span>
                     <span className="ml-auto">Since {format(new Date(customer.createdAt), "MMM yyyy")}</span>
