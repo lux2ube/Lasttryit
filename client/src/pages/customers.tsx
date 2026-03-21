@@ -410,6 +410,51 @@ const YEMEN_GOVERNORATES: GovernorateData[] = [
 
 const LOCATIONS = [{ region: "اليمن", governorates: YEMEN_GOVERNORATES }];
 
+// ── Name / location helpers for OCR pre-fill ──────────────────────────────────
+
+function splitArabicName(fullName: string): {
+  firstName: string; secondName: string; thirdName: string; lastName: string;
+} {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", secondName: "", thirdName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], secondName: "", thirdName: "", lastName: "" };
+  if (parts.length === 2) return { firstName: parts[0], secondName: "", thirdName: "", lastName: parts[1] };
+  if (parts.length === 3) return { firstName: parts[0], secondName: parts[1], thirdName: "", lastName: parts[2] };
+  return {
+    firstName:  parts[0],
+    secondName: parts[1],
+    thirdName:  parts.slice(2, -1).join(" "),
+    lastName:   parts[parts.length - 1],
+  };
+}
+
+function fuzzyMatchGov(text: string): string {
+  if (!text) return "";
+  const clean = text.replace(/^(محافظة|أمانة|مدينة)\s*/u, "").trim();
+  const all = YEMEN_GOVERNORATES;
+  const exact = all.find(g => g.name === clean || g.name === text);
+  if (exact) return exact.name;
+  const partial = all.find(g =>
+    clean.includes(g.name) || g.name.includes(clean) ||
+    (g.nameAr && (clean.includes(g.nameAr) || g.nameAr.includes(clean)))
+  );
+  return partial?.name ?? "";
+}
+
+function fuzzyMatchDistrict(govName: string, text: string): string {
+  if (!text || !govName) return "";
+  const gov = YEMEN_GOVERNORATES.find(g => g.name === govName);
+  if (!gov?.districts?.length) return "";
+  const clean = text.replace(/^(مديرية|حي|قضاء)\s*/u, "").trim();
+  const exact = gov.districts.find(d => d.name === clean || d.name === text);
+  if (exact) return exact.name;
+  const partial = gov.districts.find(d =>
+    clean.includes(d.name) || d.name.includes(clean) ||
+    (d.nameAr && (clean.includes(d.nameAr) || d.nameAr.includes(clean)))
+  );
+  return partial?.name ?? "";
+}
+
 const COUNTRY_CODES = [
   { code: "+967", flag: "🇾🇪", name: "Yemen" },
   { code: "+971", flag: "🇦🇪", name: "UAE" },
@@ -1128,6 +1173,8 @@ function CustomerFormPage({
   const queryClient = useQueryClient();
   const [blacklistAlert, setBlacklistAlert] = useState<string[] | null>(null);
   const [duplicateError, setDuplicateError] = useState<{ code: string; message: string; existing: { id: string; customerId: string; fullName: string; phonePrimary?: string } } | null>(null);
+  // Pre-save duplicate warning (name / doc number match found in DB)
+  const [preSaveWarning, setPreSaveWarning] = useState<{ customers: Customer[]; pendingData: CustomerForm } | null>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>(customer?.labels ?? []);
 
   const [secondaryPhones, setSecondaryPhones] = useState<string[]>(customer?.phoneSecondary ?? []);
@@ -1234,8 +1281,13 @@ function CustomerFormPage({
 
   const existingCity   = (customer?.demographics as any)?.city ?? "";
   const cityParts = existingCity.split(" — ");
-  const existingGov    = prefill?.data.governorate ?? cityParts[0] ?? "";
-  const existingDistrict = prefill?.data.district ?? cityParts[1] ?? "";
+  // For prefill from scan: fuzzy-match the raw text against the actual DB lists
+  const existingGov = prefill?.data.governorate
+    ? (fuzzyMatchGov(prefill.data.governorate) || prefill.data.governorate)
+    : (cityParts[0] ?? "");
+  const existingDistrict = prefill?.data.district
+    ? (fuzzyMatchDistrict(existingGov, prefill.data.district) || prefill.data.district)
+    : (cityParts[1] ?? "");
   const existingSubDistrict = prefill?.data.subdistrict ?? cityParts[2] ?? "";
 
   const [selectedGov, setSelectedGov]      = useState(existingGov);
@@ -1285,13 +1337,18 @@ function CustomerFormPage({
     }
   };
 
+  // Split scanned full name into individual parts (once, at init)
+  const prefillNameParts = prefill?.data.fullName
+    ? splitArabicName(prefill.data.fullName)
+    : null;
+
   const form = useForm<CustomerForm>({
     resolver: zodResolver(customerFormSchema),
     defaultValues: {
-      firstName:          customer?.firstName       ?? "",
-      secondName:         customer?.secondName      ?? "",
-      thirdName:          customer?.thirdName       ?? "",
-      lastName:           customer?.lastName        ?? "",
+      firstName:          prefillNameParts?.firstName  ?? customer?.firstName  ?? "",
+      secondName:         prefillNameParts?.secondName ?? customer?.secondName ?? "",
+      thirdName:          prefillNameParts?.thirdName  ?? customer?.thirdName  ?? "",
+      lastName:           prefillNameParts?.lastName   ?? customer?.lastName   ?? "",
       fullName:           prefill?.data.fullName ?? customer?.fullName ?? "",
       email:              customer?.email           ?? "",
       phonePrimary:       customer?.phonePrimary    ?? "+967",
@@ -1325,6 +1382,45 @@ function CustomerFormPage({
   const handleNameBlur = () => {
     const parts = [watchFirst, watchSecond, watchThird, watchLast].filter(Boolean);
     form.setValue("fullName", parts.join(" "));
+  };
+
+  // Pre-save duplicate check (only for new customers, not edits)
+  const checkForDuplicatesBeforeSave = async (data: CustomerForm): Promise<Customer[]> => {
+    if (customer) return []; // editing existing — skip
+    try {
+      const firstWord = (data.firstName || data.fullName || "").trim().split(/\s+/)[0];
+      if (!firstWord) return [];
+      const res = await fetch(`/api/customers?search=${encodeURIComponent(firstWord)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      const list: Customer[] = await res.json();
+      // Check for name match (same first name word) or document ID match
+      const docNumbers = documents
+        .map(d => d.number)
+        .filter(Boolean)
+        .map(n => n.trim());
+      return list.filter(c => {
+        const cFirstWord = (c.firstName || c.fullName || "").trim().split(/\s+/)[0];
+        const nameMatch = cFirstWord && firstWord && cFirstWord === firstWord;
+        const docMatch = docNumbers.some(num =>
+          (c.documentation as any[] ?? []).some((d: any) => d.number && d.number.trim() === num)
+        );
+        return nameMatch || docMatch;
+      });
+    } catch {
+      return [];
+    }
+  };
+
+  const doSave = (data: CustomerForm) => mutation.mutate(data);
+
+  const handleFormSubmit = async (data: CustomerForm) => {
+    setPreSaveWarning(null);
+    const dups = await checkForDuplicatesBeforeSave(data);
+    if (dups.length > 0) {
+      setPreSaveWarning({ customers: dups, pendingData: data });
+      return; // Don't save yet — show warning
+    }
+    doSave(data);
   };
 
   const mutation = useMutation({
@@ -1428,7 +1524,7 @@ function CustomerFormPage({
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="space-y-3">
+        <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-3">
           <Tabs defaultValue="personal">
             <TabsList className="flex w-full overflow-x-auto">
               <TabsTrigger value="personal"  className="flex-1 min-w-[80px] text-xs sm:text-sm whitespace-nowrap">Personal</TabsTrigger>
@@ -1840,9 +1936,82 @@ function CustomerFormPage({
             )}
           </Tabs>
 
+          {/* ── Pre-save duplicate warning ───────────────────── */}
+          {preSaveWarning && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    Possible duplicate — {preSaveWarning.customers.length} similar customer{preSaveWarning.customers.length > 1 ? "s" : ""} found
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    Customers below share the same first name or document ID. Please confirm this is a different person before creating.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {preSaveWarning.customers.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white dark:bg-muted/20 border border-amber-200 dark:border-amber-800/40">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0 font-bold text-amber-700 dark:text-amber-400 text-xs">
+                      {c.fullName.split(" ").slice(0, 2).map(n => n[0]).join("").toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{c.fullName}</p>
+                      <p className="text-xs text-muted-foreground">{c.customerId} · {c.phonePrimary}</p>
+                      {(c.documentation as any[] ?? []).find((d: any) => d.number) && (
+                        <p className="text-[10px] font-mono text-muted-foreground">
+                          Doc: {(c.documentation as any[]).find((d: any) => d.number)?.number}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs shrink-0 h-7"
+                      onClick={() => {
+                        setPreSaveWarning(null);
+                        onCancel();
+                        // Navigate to edit existing customer
+                        setTimeout(() => {
+                          sessionStorage.setItem("cust_editId", c.id);
+                          sessionStorage.setItem("cust_formMode", "edit");
+                        }, 100);
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setPreSaveWarning(null)}
+                >
+                  Go Back
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                  onClick={() => { setPreSaveWarning(null); doSave(preSaveWarning.pendingData); }}
+                  disabled={mutation.isPending}
+                  data-testid="button-save-anyway"
+                >
+                  {mutation.isPending ? "Saving..." : "Save Anyway — Different Person"}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="outline" onClick={onCancel} className="flex-1">Cancel</Button>
-            <Button type="submit" disabled={mutation.isPending} className="flex-1" data-testid="button-save-customer">
+            <Button type="submit" disabled={mutation.isPending || !!preSaveWarning} className="flex-1" data-testid="button-save-customer">
               {mutation.isPending ? "Saving..." : customer ? "Save Changes" : "Create Customer"}
             </Button>
           </div>
