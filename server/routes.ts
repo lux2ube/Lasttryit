@@ -9,7 +9,7 @@ import bcrypt from "bcryptjs";
 import multer from "multer";
 import { storage } from "./storage";
 import { db } from "./db";
-import { sql, eq, and, desc, ilike } from "drizzle-orm";
+import { sql, eq, and, or, desc, ilike } from "drizzle-orm";
 import { whatsappService } from "./whatsapp-service";
 import { uploadKycDocument, getSignedUrl, deleteKycDocument } from "./supabase-storage";
 import {
@@ -26,7 +26,7 @@ import {
 } from "@shared/schema";
 import { runKycGate, detectStructuring, getLiquidityStatus, autoExtractFeeEntries } from "./financial-engine";
 import { getWalletInfo, sendUSDT, validateAddress, checksumAddress } from "./blockchain-service";
-import { cryptoSends, cryptoNetworks, customerGroups, customers } from "@shared/schema";
+import { cryptoSends, cryptoNetworks, customerGroups, customers, yemenGovernorates, yemenDistricts, yemenUzaal, yemenVillages } from "@shared/schema";
 import crypto from "crypto";
 
 const BCRYPT_ROUNDS = 12;
@@ -2733,6 +2733,93 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) {
       console.error("[Kuraimi] Verify customer error:", e.message);
       res.json({ Code: "0", Message: "Internal error", SCustID: "" });
+    }
+  });
+
+  // ─── Yemen Administrative Divisions ─────────────────────────────────────────
+  // Cascading lookup: governorates → districts → uzaal → villages
+  // Public (no auth) so address dropdowns work on public-facing forms too
+
+  app.get("/api/yemen/governorates", async (_req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(yemenGovernorates)
+        .orderBy(yemenGovernorates.id);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/yemen/districts", async (req, res) => {
+    try {
+      const govId = parseInt(req.query.governorateId as string);
+      if (!govId) return res.status(400).json({ error: "governorateId required" });
+      const rows = await db
+        .select()
+        .from(yemenDistricts)
+        .where(eq(yemenDistricts.governorateId, govId))
+        .orderBy(yemenDistricts.id);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/yemen/uzaal", async (req, res) => {
+    try {
+      const distId = parseInt(req.query.districtId as string);
+      if (!distId) return res.status(400).json({ error: "districtId required" });
+      const rows = await db
+        .select()
+        .from(yemenUzaal)
+        .where(eq(yemenUzaal.districtId, distId))
+        .orderBy(yemenUzaal.id);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/yemen/villages", async (req, res) => {
+    try {
+      const uzlahId = parseInt(req.query.uzlahId as string);
+      if (!uzlahId) return res.status(400).json({ error: "uzlahId required" });
+      const rows = await db
+        .select()
+        .from(yemenVillages)
+        .where(eq(yemenVillages.uzlahId, uzlahId))
+        .orderBy(yemenVillages.id);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Full-text search across all levels — returns up to 20 hits per level
+  app.get("/api/yemen/search", async (req, res) => {
+    try {
+      const q = (req.query.q as string || "").trim();
+      if (!q || q.length < 2) return res.json({ governorates: [], districts: [], uzaal: [], villages: [] });
+      const pattern = `%${q}%`;
+      const [govs, dists, uzs, vils] = await Promise.all([
+        db.select().from(yemenGovernorates)
+          .where(or(ilike(yemenGovernorates.nameAr, pattern), ilike(yemenGovernorates.nameEn, pattern), ilike(yemenGovernorates.nameArNormalized, pattern)))
+          .limit(20),
+        db.select().from(yemenDistricts)
+          .where(or(ilike(yemenDistricts.nameAr, pattern), ilike(yemenDistricts.nameEn, pattern), ilike(yemenDistricts.nameArNormalized, pattern)))
+          .limit(20),
+        db.select().from(yemenUzaal)
+          .where(or(ilike(yemenUzaal.nameAr, pattern), ilike(yemenUzaal.nameEn, pattern), ilike(yemenUzaal.nameArNormalized, pattern)))
+          .limit(20),
+        db.select().from(yemenVillages)
+          .where(or(ilike(yemenVillages.nameAr, pattern), ilike(yemenVillages.nameEn, pattern), ilike(yemenVillages.nameArNormalized, pattern)))
+          .limit(20),
+      ]);
+      res.json({ governorates: govs, districts: dists, uzaal: uzs, villages: vils });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 

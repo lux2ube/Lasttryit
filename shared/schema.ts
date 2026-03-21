@@ -1228,6 +1228,56 @@ export const insertKuraimiPaymentSchema = createInsertSchema(kuraimiPayments).om
 export type InsertKuraimiPayment = z.infer<typeof insertKuraimiPaymentSchema>;
 export type KuraimiPayment = typeof kuraimiPayments.$inferSelect;
 
+// ─── Yemen Administrative Divisions ───────────────────────────────────────────
+// Source: https://github.com/YemenOpenSource/Yemen-info
+// 4 levels: Governorates → Districts → Uzaal → Villages
+// IDs are globally unique per level (sourced from the upstream dataset)
+
+export const yemenGovernorates = pgTable("yemen_governorates", {
+  id: integer("id").primaryKey(),                         // source ID (1–22)
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en").notNull(),
+  nameArTashkeel: text("name_ar_tashkeel"),
+  nameArNormalized: text("name_ar_normalized"),
+  nameEnNormalized: text("name_en_normalized"),
+  phoneNumberingPlan: text("phone_numbering_plan"),
+  capitalNameAr: text("capital_name_ar"),
+  capitalNameEn: text("capital_name_en"),
+});
+
+export const yemenDistricts = pgTable("yemen_districts", {
+  id: integer("id").primaryKey(),                         // globally unique source ID
+  governorateId: integer("governorate_id").notNull().references(() => yemenGovernorates.id),
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en").notNull(),
+  nameArTashkeel: text("name_ar_tashkeel"),
+  nameArNormalized: text("name_ar_normalized"),
+  nameEnNormalized: text("name_en_normalized"),
+});
+
+export const yemenUzaal = pgTable("yemen_uzaal", {
+  id: integer("id").primaryKey(),                         // globally unique source ID
+  districtId: integer("district_id").notNull().references(() => yemenDistricts.id),
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en").notNull(),
+  nameArNormalized: text("name_ar_normalized"),
+  nameEnNormalized: text("name_en_normalized"),
+});
+
+export const yemenVillages = pgTable("yemen_villages", {
+  id: integer("id").primaryKey(),                         // globally unique source ID
+  uzlahId: integer("uzlah_id").notNull().references(() => yemenUzaal.id),
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en").notNull(),
+  nameArNormalized: text("name_ar_normalized"),
+  nameEnNormalized: text("name_en_normalized"),
+});
+
+export type YemenGovernorate = typeof yemenGovernorates.$inferSelect;
+export type YemenDistrict = typeof yemenDistricts.$inferSelect;
+export type YemenUzlah = typeof yemenUzaal.$inferSelect;
+export type YemenVillage = typeof yemenVillages.$inferSelect;
+
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
 export const sessions = pgTable("sessions", {

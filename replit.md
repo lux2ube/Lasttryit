@@ -43,6 +43,14 @@ A professional internal platform for Coin Cash — a crypto exchange and Forex b
 - `notification_queue` — PostgreSQL-backed job queue for WhatsApp group notifications. Status: queued→processing→sent/failed/dead. 5 retry attempts with exponential backoff
 - `notification_audit_log` — Immutable delivery audit trail linking recordId, wamid, deliveryStatus, payloadSnapshot
 
+**Yemen Administrative Divisions (Reference Data)**
+- Source: https://github.com/YemenOpenSource/Yemen-info (seeded once; 44,085 rows)
+- `yemen_governorates` — 22 محافظات (governorates); fields: nameAr, nameEn, nameArTashkeel, nameArNormalized, nameEnNormalized, phoneNumberingPlan, capitalNameAr/En
+- `yemen_districts` — 335 مديريات (districts); FK → yemen_governorates.id
+- `yemen_uzaal` — 2,234 عزل (subdistricts); FK → yemen_districts.id
+- `yemen_villages` — 41,494 قرى (villages); FK → yemen_uzaal.id
+- API: `GET /api/yemen/governorates`, `GET /api/yemen/districts?governorateId=`, `GET /api/yemen/uzaal?districtId=`, `GET /api/yemen/villages?uzlahId=`, `GET /api/yemen/search?q=` (cross-level search, all public endpoints)
+
 **WhatsApp Notification System + SMS Receiver (VPS Bridge Architecture)**
 - Bridge server: VPS at 209.127.27.2, runs Baileys (Node.js) managed by PM2 (`wa-bridge` process), port 3078
 - WhatsApp 24/7 stability: VPS auto-starts Baileys from saved session (`/var/data/wa-auth`) on every restart — no QR rescan needed
