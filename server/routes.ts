@@ -853,6 +853,150 @@ General rules:
     }
   });
 
+  // ── Server-side OCR: sharp preprocessing + server Tesseract + DeepSeek text parsing ──
+  app.post("/api/ocr/vision-scan", requireAuth, async (req, res) => {
+    try {
+      const { imageData, documentType, mimeType } = req.body as {
+        imageData: string;
+        documentType?: string;
+        mimeType?: string;
+      };
+      if (!imageData) return res.status(400).json({ message: "imageData (base64) is required" });
+
+      const apiKey = process.env.DEEPSEEK_API_KEY;
+      if (!apiKey) return res.status(503).json({ message: "OCR service not configured (DEEPSEEK_API_KEY missing)" });
+
+      // Step 1: Run server-side Tesseract with sharp image preprocessing
+      console.log("[Vision OCR] Running server-side OCR with sharp preprocessing...");
+      const ocrService = await import("./ocr-service");
+      const rawText = await ocrService.extractTextFromImage(imageData, mimeType);
+      console.log(`[Vision OCR] Extracted ${rawText.length} chars of text`);
+
+      if (!rawText || rawText.trim().length < 3) {
+        return res.status(422).json({ message: "Could not extract text from image — ensure the image is clear and well-lit" });
+      }
+
+      // Step 2: Build the same smart DeepSeek prompt used by scan-document
+      const govList = await getGovList();
+      const govNames = govList.map((r: any) => r.nameAr);
+      const govListStr = govNames.slice(0, 22).join(" | ");
+
+      const docTypeHint = documentType === "passport"
+        ? `The source document is a Yemeni PASSPORT (جواز سفر).
+PASSPORT-SPECIFIC RULES:
+- fullName: Use Arabic name if visible; otherwise reverse-transliterate the English MRZ name to Arabic.
+- documentNumber: 7-9 digit number near "Passport No" / "رقم الجواز", or MRZ line 2 chars 1-9.
+- MRZ line 2 (44-char line): chars 1-9 = passport number, 14-19 = DOB (YYMMDD), 22-27 = expiry (YYMMDD).
+- issueDate: from "تاريخ الإصدار" / "DATE OF ISSUE".
+- expiryDate: from "تاريخ الانتهاء" / "DATE OF EXPIRY" or MRZ chars 22-27.
+- gender: M=male, F=female.`
+        : documentType === "national_id_back"
+        ? `The source document is the BACK of a Yemeni National ID.
+- Extract documentNumber (الرقم الوطني), issueDate, expiryDate only.
+- Return null for all other fields.`
+        : `The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني).
+ID-SPECIFIC RULES:
+- documentNumber: appears after "الرقم الوطني:" — may include dashes. Also look for large standalone number.
+- fullName: appears after "الاسم:" — Arabic only.
+- placeOfBirth: after "مكان الميلاد:".
+- dateOfBirth: after "تاريخ الميلاد:" — format YYYY/MM/DD or DD/MM/YYYY.
+- bloodType: after "فصيلة الدم:".
+- The ID front typically does NOT have an expiry date.`;
+
+      const prompt = `You are an expert at recovering structured data from heavily-noisy OCR output of Yemeni identity documents. The text below comes from MULTIPLE OCR passes (different rotations and preprocessing), each labeled with [pass-name]. Pick the clearest reading of each field across all passes.
+
+${docTypeHint}
+
+Raw OCR output (multiple passes — use ALL of them to find the best reading of each field):
+"""
+${rawText}
+"""
+
+CRITICAL OCR ARTIFACT HANDLING:
+1. REVERSED DIGITS / DATES: Arabic right-to-left often causes numbers to appear reversed. 
+   e.g. "2/0/9661" → reverse each part → "1996/01/2" → pad → "1996-01-12"
+   e.g. "12/10/9661" → "1996/10/12", "21/10/9661" → "1996/10/21"
+   ALWAYS convert 4-digit years that look like ≥1940 and ≤2010.
+2. DOCUMENT NUMBERS: Yemeni national IDs are 10-12 digit numbers. Scan ALL passes for the longest clean digit sequence. Ignore dashes. If you see fragments like "0401035" and "059095" in different passes, try to combine them → "04010359095".
+3. BLOOD TYPE: Near the Arabic "فصيلة الدم". May appear as O+, A+, B+, AB+, or garbled (©+, يO+, ©٠). Decode intelligently.
+4. ARABIC NAMES: Take the longest consistent Arabic sequence across passes. Ignore random Latin letters mixed in.
+5. CONFIDENCE: Set docConfidence 0-40 if you can only partially read the card, 40-70 if most fields are clear, 70-100 if everything is clean.
+
+Extract and return ONLY a valid JSON object (no markdown, no explanation):
+{
+  "fullName": "<full Arabic name — Arabic script ONLY, or null>",
+  "documentNumber": "<10-12 digit national ID or passport number, or null>",
+  "dateOfBirth": "<YYYY-MM-DD after fixing reversal, or null>",
+  "placeOfBirth": "<place of birth in Arabic, or null>",
+  "governorate": "<MUST be exactly one of: ${govListStr} — or null>",
+  "district": "<district in Arabic, or null>",
+  "subdistrict": "<uzlah in Arabic, or null>",
+  "issueDate": "<YYYY-MM-DD, or null>",
+  "expiryDate": "<YYYY-MM-DD, or null>",
+  "gender": "<male|female|null>",
+  "bloodType": "<A+|A-|B+|B-|O+|O-|AB+|AB-|null>",
+  "docConfidence": <0-100>
+}`;
+
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 800,
+          temperature: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(502).json({ message: "AI parsing error", detail: errText.slice(0, 200) });
+      }
+
+      const aiRes = await response.json() as any;
+      const content = aiRes.choices?.[0]?.message?.content ?? "";
+
+      let extracted: any = {};
+      try {
+        const jsonStr = content.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
+        extracted = JSON.parse(jsonStr);
+      } catch {
+        const match = content.match(/\{[\s\S]*\}/);
+        if (match) { try { extracted = JSON.parse(match[0]); } catch { /* leave empty */ } }
+      }
+
+      // Post-processing: blood type correction
+      if (!extracted.bloodType) {
+        const btClean = rawText.match(/(?:فصيلة\s*الدم|blood\s*type)[^A-Za-z\u0621-\u06FF\d]{0,5}([ABO]{1,2}[+-])/i);
+        if (btClean) extracted.bloodType = btClean[1];
+      }
+
+      // Governorate validation
+      const normaliseStr = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (extracted.governorate && govList.length > 0) {
+        const exact = govList.find((g: any) => normaliseStr(g.nameAr) === normaliseStr(extracted.governorate));
+        if (!exact) {
+          const fuzzy = govList.find((g: any) =>
+            normaliseStr(g.nameAr).includes(normaliseStr(extracted.governorate)) ||
+            normaliseStr(extracted.governorate).includes(normaliseStr(g.nameAr))
+          );
+          extracted.governorate = fuzzy?.nameAr ?? null;
+        }
+      }
+
+      if (extracted.district) {
+        extracted.district = extracted.district.replace(/^(مديرية|حي|قضاء)\s+/u, "").trim();
+      }
+
+      console.log(`[Vision OCR] doc=${documentType} confidence=${extracted.docConfidence} name=${extracted.fullName}`);
+      res.json({ success: true, extracted, rawResponse: rawText });
+    } catch (e: any) {
+      console.error("[Vision OCR] Error:", e.message);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/customers/:id/kyc-upload", requireAuth, requireRole("admin", "operations_manager", "finance_officer"),
     kycUpload.single("file"), async (req, res) => {
     try {

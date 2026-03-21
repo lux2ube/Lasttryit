@@ -1319,38 +1319,29 @@ function CustomerFormPage({
 
   const runOcr = async (imageDataUrl: string) => {
     setOcrLoading(true);
-    setOcrProgress(0);
+    setOcrProgress(20);
     try {
-      // Step 1: Tesseract extracts raw text
-      const { data } = await Tesseract.recognize(imageDataUrl, "ara+eng", {
-        workerPath: "/tesseract-worker.min.js",
-        logger: (m: any) => {
-          if (m.status === "loading tesseract core") setOcrProgress(Math.round(m.progress * 10));
-          else if (m.status === "initializing tesseract") setOcrProgress(10 + Math.round(m.progress * 5));
-          else if (m.status === "loading language traineddata") setOcrProgress(15 + Math.round(m.progress * 30));
-          else if (m.status === "initializing api") setOcrProgress(45 + Math.round(m.progress * 10));
-          else if (m.status === "recognizing text") setOcrProgress(55 + Math.round(m.progress * 15));
-        },
-      });
-      const rawText = data.text;
-      setOcrProgress(75);
-
       // Map doc form type to API documentType
       const apiDocType =
         docForm.type === "passport" ? "passport"
         : docForm.type === "national_id_back" ? "national_id_back"
         : "national_id";
 
-      // Step 2: Deepseek-powered parsing (same engine as ScanDocumentDialog)
-      const res = await fetch("/api/ocr/scan-document", {
+      setOcrProgress(40);
+
+      // Send image directly to DeepSeek Vision API (no Tesseract needed)
+      const res = await fetch("/api/ocr/vision-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ rawText, documentType: apiDocType }),
+        body: JSON.stringify({ imageData: imageDataUrl, documentType: apiDocType }),
       });
-      setOcrProgress(95);
+      setOcrProgress(85);
 
-      if (!res.ok) throw new Error("AI parsing failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "AI vision failed");
+      }
 
       const json = await res.json();
       const ext = json.extracted ?? {};
@@ -1368,24 +1359,24 @@ function CustomerFormPage({
         const allGovNames = YEMEN_GOVERNORATES.map(g => g.name);
         const allDistNames = YEMEN_GOVERNORATES.flatMap(g => g.districts.map(d => d.name));
         const foundGov = ext.governorate
-          ? (allGovNames.find(n => n === ext.governorate) ?? allGovNames.find(n => rawText.includes(n)))
-          : allGovNames.find(n => rawText.includes(n));
+          ? (allGovNames.find(n => n === ext.governorate) ?? null)
+          : null;
         const foundDist = ext.district
-          ? (allDistNames.find(n => n === ext.district) ?? allDistNames.find(n => rawText.includes(n)))
-          : allDistNames.find(n => rawText.includes(n));
+          ? (allDistNames.find(n => n === ext.district) ?? null)
+          : null;
         if (foundGov && !selectedGov) { setSelectedGov(foundGov); form.setValue("city", foundGov); }
         if (foundDist && !selectedDistrict) { setSelectedDistrict(foundDist); form.setValue("district", foundDist); }
       }
 
       const extractedKeys = Object.keys(updates);
       toast({
-        title: "OCR Complete",
+        title: "AI OCR Complete",
         description: extractedKeys.length > 0
           ? `Extracted: ${extractedKeys.join(", ")} · Confidence: ${ext.docConfidence ?? "?"}%`
           : "No structured data found in document",
       });
-    } catch (err) {
-      toast({ title: "OCR Failed", description: "Could not process image", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "OCR Failed", description: err.message || "Could not process image", variant: "destructive" });
     } finally {
       setOcrLoading(false);
     }
@@ -1885,7 +1876,7 @@ function CustomerFormPage({
                               {ocrLoading ? (
                                 <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Extracting... {ocrProgress}%</>
                               ) : (
-                                <><ScanLine className="w-3.5 h-3.5 mr-1.5" />Extract Data (OCR) — Arabic + English</>
+                                <><ScanLine className="w-3.5 h-3.5 mr-1.5" />Extract Data (AI Vision)</>
                               )}
                             </Button>
                           )}
@@ -2167,39 +2158,27 @@ function ScanDocumentDialog({
   };
 
   const runOcrAndParse = async (dataUrl: string, mimeType: string) => {
-    setOcrProgress(0);
+    setOcrProgress(20);
     setRawOcrText("");
     try {
-      // Step 1: Tesseract extracts raw text
-      const { data } = await Tesseract.recognize(dataUrl, "ara+eng", {
-        workerPath: "/tesseract-worker.min.js",
-        logger: (m: any) => {
-          if (m.status === "loading tesseract core") setOcrProgress(Math.round(m.progress * 10));
-          else if (m.status === "initializing tesseract") setOcrProgress(10 + Math.round(m.progress * 5));
-          else if (m.status === "loading language traineddata") setOcrProgress(15 + Math.round(m.progress * 30));
-          else if (m.status === "initializing api") setOcrProgress(45 + Math.round(m.progress * 10));
-          else if (m.status === "recognizing text") setOcrProgress(55 + Math.round(m.progress * 15));
-        },
-      });
-      const rawText = data.text;
-      setRawOcrText(rawText);
-      setOcrProgress(75);
+      setOcrProgress(40);
 
-      // Step 2: Send raw text to Deepseek for intelligent parsing
-      const res = await fetch("/api/ocr/scan-document", {
+      // Send image directly to DeepSeek Vision API (no Tesseract)
+      const res = await fetch("/api/ocr/vision-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ rawText, documentType: docType }),
+        body: JSON.stringify({ imageData: dataUrl, documentType: docType, mimeType }),
       });
-      setOcrProgress(95);
+      setOcrProgress(90);
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message ?? "AI parsing failed");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? "AI vision failed");
       }
 
       const json = await res.json();
+      setRawOcrText(json.rawResponse ?? "");
       const extracted: ScannedData = {
         fullName: json.extracted?.fullName ?? null,
         documentNumber: json.extracted?.documentNumber ?? null,
@@ -2382,7 +2361,7 @@ function ScanDocumentDialog({
             )}
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{ocrProgress < 75 ? "Reading text from image..." : ocrProgress < 95 ? "AI parsing Arabic fields..." : "Finalizing..."}</span>
+                <span>{ocrProgress < 50 ? "Sending to AI vision..." : ocrProgress < 90 ? "DeepSeek reading Arabic fields..." : "Finalizing..."}</span>
                 <span>{ocrProgress}%</span>
               </div>
               <div className="w-full bg-muted rounded-full h-2">
