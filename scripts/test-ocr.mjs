@@ -54,6 +54,61 @@ const DOCS = [
   },
 ];
 
+// Yemen governorates list (mirrors DB, Arabic | English)
+const GOV_LIST = [
+  { nameAr: "أمانة العاصمة", nameEn: "Amant Al-Asmah" },
+  { nameAr: "صنعاء", nameEn: "Sanaa" },
+  { nameAr: "عدن", nameEn: "Aden" },
+  { nameAr: "الحديدة", nameEn: "Al-Hodeidah" },
+  { nameAr: "ذمار", nameEn: "Thamar" },
+  { nameAr: "عمران", nameEn: "Amran" },
+  { nameAr: "حجة", nameEn: "Hajjah" },
+  { nameAr: "إب", nameEn: "Ibb" },
+  { nameAr: "صعدة", nameEn: "Sa'dah" },
+  { nameAr: "البيضاء", nameEn: "Al-Baidha" },
+  { nameAr: "شبوة", nameEn: "Shabwah" },
+  { nameAr: "تعز", nameEn: "Taiz" },
+  { nameAr: "الجوف", nameEn: "Al-jawf" },
+  { nameAr: "مأرب", nameEn: "Ma'rib" },
+  { nameAr: "حضرموت", nameEn: "Hadramot" },
+  { nameAr: "المهرة", nameEn: "Al-Maharah" },
+  { nameAr: "الضالع", nameEn: "Al-Dhale'" },
+  { nameAr: "المحويت", nameEn: "Al-Mahweet" },
+  { nameAr: "لحج", nameEn: "Lahj" },
+  { nameAr: "ريمة", nameEn: "Raimah" },
+  { nameAr: "سقطرى", nameEn: "Socatra" },
+  { nameAr: "أبين", nameEn: "Abyan" },
+];
+
+const normaliseStr = s => s.replace(/\s+/g, " ").trim().toLowerCase();
+const matchGovArabic = candidate => {
+  const n = normaliseStr(candidate);
+  const exact = GOV_LIST.find(g => normaliseStr(g.nameAr) === n);
+  if (exact) return exact.nameAr;
+  const fuzzy = GOV_LIST.find(g => normaliseStr(g.nameAr).includes(n) || n.includes(normaliseStr(g.nameAr)));
+  return fuzzy?.nameAr ?? null;
+};
+const matchGovEnglish = candidate => {
+  const n = candidate.toUpperCase().replace(/[^A-Z]/g, "");
+  const exact = GOV_LIST.find(g => g.nameEn && g.nameEn.toUpperCase().replace(/[^A-Z]/g, "") === n);
+  if (exact) return exact.nameAr;
+  const partial = GOV_LIST.find(g => g.nameEn && (g.nameEn.toUpperCase().includes(n) || n.includes(g.nameEn.toUpperCase().replace(/[^A-Z]/g, ""))) && n.length >= 3);
+  return partial?.nameAr ?? null;
+};
+
+// MRZ name → Arabic reverse transliteration lookup
+const TR = {
+  AHMED:"احمد", AHMAD:"أحمد", MOHAMMED:"محمد", MUHAMMAD:"محمد", MEHMED:"محمد",
+  ALI:"علي", MANSOUR:"منصور", MANSUR:"منصور", SAQR:"صاقر", SAKR:"صاقر",
+  ABDULWAHAB:"عبدالوهاب", ABDULWARAB:"عبدالوهاب", ABDULAZIZ:"عبدالعزيز",
+  ABDULKARIM:"عبدالكريم", ABDULRAHMAN:"عبدالرحمن", ABDULMALIK:"عبدالملك",
+  SALEH:"صالح", SALIH:"صالح", NASSER:"ناصر", NASIR:"ناصر",
+  OMAR:"عمر", HASSAN:"حسن", HUSSEIN:"حسين", HUSSAIN:"حسين",
+  IBRAHIM:"إبراهيم", ISMAIL:"إسماعيل", KHALED:"خالد", KHALID:"خالد",
+  HANI:"هاني", YAHYA:"يحيى", YOUSUF:"يوسف", YUSUF:"يوسف",
+  SAEED:"سعيد", SAID:"سعيد", WALID:"وليد", WALED:"وليد",
+};
+
 // ── Post-processing (mirrors server/routes.ts) ─────────────────────────────
 
 function postProcess(extracted, rawText, documentType = "") {
@@ -105,24 +160,99 @@ function postProcess(extracted, rawText, documentType = "") {
   // 5. Strip wrong prefixes from governorate/district
   if (extracted.governorate) extracted.governorate = extracted.governorate.replace(/^(محافظة|مديرية)\s+/u, "").trim();
   if (extracted.district)    extracted.district    = extracted.district.replace(/^(مديرية|حي|قضاء)\s+/u, "").trim();
+
+  // 6. Validate governorate against DB list (Arabic then English)
+  if (extracted.governorate) {
+    const arMatch = matchGovArabic(extracted.governorate);
+    if (arMatch) {
+      extracted.governorate = arMatch;
+    } else {
+      const enMatch = /^[A-Za-z\s]+$/.test(extracted.governorate) ? matchGovEnglish(extracted.governorate) : null;
+      extracted.governorate = enMatch ?? null;
+    }
+  }
+  // 6b. Passport: search raw OCR text for English gov names
+  if (documentType === "passport" && !extracted.governorate) {
+    const upperOcr = rawText.toUpperCase();
+    const found = GOV_LIST.find(g => {
+      if (!g.nameEn) return false;
+      const en = g.nameEn.toUpperCase().replace(/[^A-Z]/g, "");
+      return en.length >= 3 && upperOcr.replace(/[^A-Z]/g, "").includes(en);
+    });
+    if (found) extracted.governorate = found.nameAr;
+  }
+  // 6c. Update placeOfBirth from English to Arabic if needed
+  if (extracted.governorate && extracted.placeOfBirth && /^[A-Za-z\s]+$/.test(extracted.placeOfBirth)) {
+    extracted.placeOfBirth = extracted.governorate;
+  }
+
+  // 7. Passport number fallback
+  if (documentType === "passport" && !extracted.documentNumber) {
+    const ppLabelMatch = rawText.match(/(?:رقم\s*الجواز|Passport\s*No\.?)\s*[:\s#]*([A-Z]?\d{7,9})/i);
+    if (ppLabelMatch) {
+      extracted.documentNumber = ppLabelMatch[1];
+    } else {
+      const mrzLine = rawText.match(/([A-Z0-9<]{9,}[<][A-Z]{3})/);
+      if (mrzLine) {
+        const ppPart = mrzLine[1].split("<")[0].replace(/[^0-9A-Z]/g, "");
+        if (/^\d{7,9}$/.test(ppPart)) extracted.documentNumber = ppPart;
+      }
+      if (!extracted.documentNumber) {
+        const candidates = [...rawText.matchAll(/(?<!\d)(\d{8,9})(?!\d)/g)];
+        const ppNum = candidates.find(m => !/^(19|20)\d{6}$/.test(m[1]));
+        if (ppNum) extracted.documentNumber = ppNum[1];
+      }
+    }
+  }
+
+  // 8. Passport: MRZ line 1 name extraction when Arabic name missing
+  if (documentType === "passport" && !extracted.fullName) {
+    const mrzNameLine = rawText.match(/[A-Z]{2,}<<([A-Z<]+)/);
+    if (mrzNameLine) {
+      const fullMrz = mrzNameLine[0];
+      const [surnameRaw, givenRaw] = fullMrz.split("<<");
+      const surnameClean = surnameRaw.replace(/^[^A-Z]*/, "").replace(/^[A-Z]{1,3}(?=[A-Z]{3,})/, "").replace(/<+$/, "").trim();
+      const givenParts = (givenRaw ?? "").split("<").map(p => p.trim()).filter(p => p.length > 1);
+      const allParts = [surnameClean, ...givenParts].filter(p => /[AEIOU]/i.test(p) && p.length > 1).slice(0, 4);
+      if (allParts.length >= 2) {
+        const arabicParts = allParts.map(p => TR[p.toUpperCase()] ?? null);
+        const arabicFamilyName = arabicParts[0];
+        const arabicGivenParts = arabicParts.slice(1);
+        const orderedArabic = [...arabicGivenParts, arabicFamilyName].filter(Boolean);
+        if (orderedArabic.length >= 2) {
+          extracted.fullName = orderedArabic.join(" ");
+          extracted._nameFromMRZ = true;
+        }
+      }
+    }
+  }
+
   return extracted;
 }
 
 // ── Deepseek prompt builder ────────────────────────────────────────────────
 
 function buildPrompt(rawText, documentType) {
+  const govListStr = GOV_LIST.map(g => g.nameAr).join(" | ");
+
   const docTypeHint = documentType === "passport"
     ? `The source document is a Yemeni PASSPORT (جواز سفر).
 PASSPORT-SPECIFIC RULES:
-- fullName MUST be the Arabic name (الاسم بالعربية / الاسم الثلاثي) — do NOT use the English/Latin romanized name from the MRZ zone or bio page header.
-- documentNumber: the passport number printed on the bio page labeled "رقم الجواز" or the alphanumeric code in the MRZ line 2 before the first check digit.
-- The MRZ zone has two lines of 44 characters. Line 1 starts with P<YEM. Line 2 format: [passportNo][check][nationality][YYMMDD=DOB][check][gender][YYMMDD=expiry][check][personalNo][check][check].
-  - Date of birth is characters 14-19 of MRZ line 2 (YYMMDD) — if YY >= 30 it is 1900s else 2000s.
-  - Expiry date is characters 22-27 of MRZ line 2 (YYMMDD).
-- issueDate: look for "تاريخ الإصدار" or "DATE OF ISSUE" on the bio page.
-- expiryDate: look for "تاريخ الانتهاء" / "DATE OF EXPIRY" on the bio page; OR decode MRZ line 2 characters 22-27 as YYMMDD.
-- placeOfBirth: look for "مكان الميلاد" or "PLACE OF BIRTH" — return the Arabic text.
-- gender: M in MRZ = male, F = female.`
+- fullName: FIRST check if Arabic name (الاسم بالعربية) is visible in the OCR text — use it verbatim if found.
+  If Arabic name is NOT visible (OCR shows noise/garbage for the Arabic section), then use your deep knowledge of Arabic names to REVERSE-TRANSLITERATE the English name components into Arabic script.
+  Example mappings: AHMED=احمد, MOHAMMED=محمد, ALI=علي, MANSOUR=منصور, SAQR=صاقر, IBRAHIM=إبراهيم, HASSAN=حسن, HUSSEIN=حسين, ABDULWAHAB=عبدالوهاب, ABDULAZIZ=عبدالعزيز, SALEH=صالح, NASSER=ناصر, OMAR=عمر.
+  The English name in Yemeni passports: surname first, then given names (all separated by spaces/newlines). Re-order to Arabic sequence: personal + father + grandfather + family.
+  IMPORTANT: Return ONLY Arabic script — never return English Latin text in fullName.
+- documentNumber: look for 7–9 digit number near label "Passport No" / "رقم الجواز" on bio page.
+  Also check MRZ line 2 (the second line containing "<" chars): first 9 chars before first check digit = passport number.
+  Example MRZ line 2: "10469492<6YEM..." → passport number is "10469492".
+- MRZ line 1 format: P<YEM{SURNAME}<<{GIVEN1}<{GIVEN2}... — extract name from here if Arabic not visible.
+- MRZ line 2: chars 14–19 = YYMMDD DOB (YY>=30 → 19xx, else 20xx); chars 22–27 = YYMMDD expiry.
+- issueDate: look for "تاريخ الإصدار" / "DATE OF ISSUE".
+- expiryDate: look for "تاريخ الانتهاء" / "DATE OF EXPIRY"; OR MRZ chars 22–27.
+- placeOfBirth: look for "مكان الميلاد" / "PLACE OF BIRTH" — if only English visible (e.g. "TAIZ YEM") translate to Arabic: TAIZ=تعز, ADEN=عدن, SANAA=صنعاء, IBB=إب, HADRAMOUT=حضرموت, HODEIDAH=الحديدة, DHAMAR=ذمار, MARIB=مأرب.
+- governorate: extract from placeOfBirth — apply English→Arabic mapping if needed.
+- gender: M in MRZ = male, F = female; also ذكر=male, أنثى=female.`
     : `The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني).
 ID-SPECIFIC RULES:
 - Two layouts: northern design (Republic of Yemen / Ministry of Interior header, separate fields) and new/southern design (large national number prominently displayed, combined place+date of birth field).
@@ -146,8 +276,8 @@ Extract the following fields and return ONLY a valid JSON object (no markdown, n
   "fullName": "<full Arabic name ONLY — never English/Latin romanization, or null>",
   "documentNumber": "<national ID number or passport number, or null>",
   "dateOfBirth": "<YYYY-MM-DD format, or null>",
-  "placeOfBirth": "<place of birth in Arabic exactly as written, or null>",
-  "governorate": "<Yemeni governorate in Arabic — strip prefix محافظة/أمانة — extracted from placeOfBirth or address fields, or null>",
+  "placeOfBirth": "<place of birth in Arabic exactly as written on the document, or null>",
+  "governorate": "<MUST be one of the exact governorate names listed below — pick closest match, or null>",
   "district": "<district/city in Arabic — strip prefix مديرية/حي — extracted from placeOfBirth, or null>",
   "subdistrict": "<uzlah in Arabic, or null>",
   "issueDate": "<YYYY-MM-DD format, or null>",
@@ -157,15 +287,17 @@ Extract the following fields and return ONLY a valid JSON object (no markdown, n
   "docConfidence": <0-100 confidence in extraction quality>
 }
 
+GOVERNORATE STRICT RULE — the "governorate" field MUST be chosen EXACTLY from this list, or null:
+${govListStr}
+
 General rules:
 - ALL name and place fields must be in Arabic script — never return English/Latin romanized text for these fields.
 - Dates like 1992/05/22 or 22/05/1992 or 22-05-1992 → convert to YYYY-MM-DD. Always prefer a year between 1950-2015 for date of birth when multiple options appear (discard OCR noise).
-- BLOOD TYPE: Look specifically for text immediately after "فصيلة الدم" or ":الدم" — common values are O+, O-, A+, A-, B+, B-, AB+, AB-. If you see a + or - near those labels, return the blood type.
+- BLOOD TYPE: Look specifically for text immediately after "فصيلة الدم" or ":الدم".
 - PLACE OF BIRTH handling:
   a. "اليمن" (Yemen) is the COUNTRY name, not a governorate — if placeOfBirth begins with "اليمن - X", treat X as the governorate.
-  b. If placeOfBirth contains " - " or " – " separating two parts, the first (non-country) part is the governorate and the second part is the district. Remove any date portion (YYYY/MM/DD) found in the placeOfBirth string.
-  c. Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي) before returning their values.
-- For passports: if Arabic fullName is not visible in the text, return null — do NOT construct from English MRZ components.
+  b. If placeOfBirth contains " - " or " – " separating two parts, the first (non-country) part is the governorate and the second is the district.
+  c. Strip Arabic prefixes from governorate (محافظة / أمانة) and district (مديرية / حي).
 - If a field is not found in the text, return null for that field.
 - Return ONLY the JSON object — no markdown fences, no explanation.`;
 }

@@ -507,12 +507,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // sends that text to this endpoint which asks Deepseek to structure it into
   // clean fields. Deepseek text models handle Arabic perfectly.
   // Cache governorate list in memory (loaded once, safe since list is static)
-  let _govCache: string[] | null = null;
-  async function getGovNameList(): Promise<string[]> {
+  let _govCache: { nameAr: string; nameEn: string | null }[] | null = null;
+  async function getGovList(): Promise<{ nameAr: string; nameEn: string | null }[]> {
     if (_govCache) return _govCache;
-    const rows = await db.select({ nameAr: yemenGovernorates.nameAr }).from(yemenGovernorates).orderBy(yemenGovernorates.id);
-    _govCache = rows.map(r => r.nameAr).filter(Boolean) as string[];
+    const rows = await db.select({ nameAr: yemenGovernorates.nameAr, nameEn: yemenGovernorates.nameEn }).from(yemenGovernorates).orderBy(yemenGovernorates.id);
+    _govCache = rows.filter(r => r.nameAr) as { nameAr: string; nameEn: string | null }[];
     return _govCache;
+  }
+  async function getGovNameList(): Promise<string[]> {
+    return (await getGovList()).map(r => r.nameAr);
   }
 
   app.post("/api/ocr/scan-document", requireAuth, async (req, res) => {
@@ -525,21 +528,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const apiKey = process.env.DEEPSEEK_API_KEY;
       if (!apiKey) return res.status(503).json({ message: "OCR service not configured (DEEPSEEK_API_KEY missing)" });
 
-      // Load DB governorate list for exact matching
-      const govNames = await getGovNameList();
+      // Load DB governorate list for exact matching (nameAr + nameEn)
+      const govList = await getGovList();
+      const govNames = govList.map(r => r.nameAr);
 
       const docTypeHint = documentType === "passport"
         ? `The source document is a Yemeni PASSPORT (جواز سفر).
 PASSPORT-SPECIFIC RULES:
-- fullName MUST be the Arabic name (الاسم بالعربية / الاسم الثلاثي) — do NOT use the English/Latin romanized name from the MRZ zone or bio page header.
-- documentNumber: the passport number (P<YEM... line — take the alphanumeric code after P<YEM in MRZ, OR the number printed on the bio page labeled "رقم الجواز").
-- The MRZ zone has two lines of 44 characters. Line 1 starts with P<YEM. Line 2 format: [passportNo][check][nationality][YYMMDD=DOB][check][gender][YYMMDD=expiry][check][personalNo][check][check].
-  - Date of birth is characters 14–19 of MRZ line 2 (YYMMDD) — if YY ≥ 30 it is 1900s else 2000s.
-  - Expiry date is characters 22–27 of MRZ line 2 (YYMMDD).
-- issueDate: look for "تاريخ الإصدار" or "Date of Issue" on the bio page.
-- expiryDate: look for "تاريخ الانتهاء" / "تاريخ الصلاحية" / "Date of Expiry" on the bio page; OR decode MRZ characters 22–27 as YYMMDD.
-- placeOfBirth: look for "مكان الميلاد" — return Arabic text exactly as found.
-- gender: M in MRZ = male, F = female.`
+- fullName: FIRST check if Arabic name (الاسم بالعربية) is visible in the OCR text — use it verbatim if found.
+  If Arabic name is NOT visible (OCR shows noise/garbage for the Arabic section), then use your deep knowledge of Arabic names to REVERSE-TRANSLITERATE the English name components into Arabic script.
+  Example mappings: AHMED=احمد, MOHAMMED=محمد, ALI=علي, MANSOUR=منصور, SAQR=صاقر, TAIZ=تعز, ADEN=عدن, SANAA=صنعاء, IBRAHIM=إبراهيم, HASSAN=حسن, HUSSEIN=حسين, ABDULWAHAB=عبدالوهاب, ABDULAZIZ=عبدالعزيز, SALEH=صالح, NASSER=ناصر, OMAR=عمر.
+  The English name in Yemeni passports has a specific order: family/last name first, then personal name, then father name, then grandfather name (all separated by spaces/newlines). Re-order to the standard Arabic sequence: personal + father + grandfather + family.
+  IMPORTANT: Return ONLY the Arabic script — never return English Latin text in fullName.
+- documentNumber: look for 7–9 digit number near label "Passport No" / "رقم الجواز" on the bio page.
+  Also check MRZ line 2 (the second of two lines containing "<" characters): the first 9 characters (before the first single check digit) are the passport number — strip trailing "<" padding.
+  Example MRZ line 2: "10469492<6YEM..." → passport number is "10469492".
+- The MRZ zone has two lines of 44 characters. Line 1 starts with P<YEM. Line 2 format: [passportNo][check][YEM][YYMMDD=DOB][check][M/F][YYMMDD=expiry][check][personalNo][check][check].
+  - Date of birth: characters 14–19 (YYMMDD) — YY ≥ 30 → 19xx, YY < 30 → 20xx.
+  - Expiry date: characters 22–27 (YYMMDD).
+- issueDate: look for "تاريخ الإصدار" / "DATE OF ISSUE" / "Date of Issue" on the bio page.
+- expiryDate: look for "تاريخ الانتهاء" / "DATE OF EXPIRY" / "Date of Expiry" on the bio page; OR decode MRZ characters 22–27 as YYMMDD.
+- placeOfBirth: look for "مكان الميلاد" / "PLACE OF BIRTH" — if Arabic text is visible use it; if only English is visible (e.g. "TAIZ YEM", "ADEN YEM") translate to Arabic (TAIZ=تعز, ADEN=عدن, SANAA=صنعاء, IBB=إب, HADRAMOUT=حضرموت, HODEIDAH=الحديدة, DHAMAR=ذمار, MARIB=مأرب, SHABWAH=شبوة, ABYAN=أبين, LAHJ=لحج, ALDALEH=الضالع, MAHWEET=المحويت, HAJJAH=حجة, SAADA=صعدة, JAWF=الجوف, AMRAN=عمران, RAIMAH=ريمة, ALMAHRAH=المهرة, SOCOTRA=سقطرى, MUKALLA=حضرموت).
+- governorate: extract from placeOfBirth — apply the same English→Arabic mapping if needed.
+- gender: M in MRZ = male, F = female. Also look for ذكر (male) or أنثى (female).`
         : `The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني).
 ID-SPECIFIC RULES:
 - Two layouts exist: northern design (Republic of Yemen / Ministry of Interior header, fields for national number, name, birthplace, birthdate, blood type) and southern design (single face with large national number prominently displayed).
@@ -697,37 +708,121 @@ General rules:
           .trim();
       }
 
-      // 6. Validate governorate against DB list (reject any value not in the list)
-      if (extracted.governorate && govNames.length > 0) {
-        const normalise = (s: string) => s.replace(/\s+/g, " ").trim();
-        const normExtracted = normalise(extracted.governorate);
-        const exactMatch = govNames.find(g => normalise(g) === normExtracted);
-        if (!exactMatch) {
-          // Try fuzzy: does any gov name contain or be contained by the extracted value?
-          const fuzzy = govNames.find(g => normalise(g).includes(normExtracted) || normExtracted.includes(normalise(g)));
-          extracted.governorate = fuzzy ?? null;
+      // 6. Validate & normalise governorate against DB list
+      const normaliseStr = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+      const matchGovArabic = (candidate: string): string | null => {
+        const n = normaliseStr(candidate);
+        const exact = govList.find(g => normaliseStr(g.nameAr) === n);
+        if (exact) return exact.nameAr;
+        const fuzzy = govList.find(g => normaliseStr(g.nameAr).includes(n) || n.includes(normaliseStr(g.nameAr)));
+        return fuzzy?.nameAr ?? null;
+      };
+      const matchGovEnglish = (candidate: string): string | null => {
+        const n = candidate.toUpperCase().replace(/[^A-Z]/g, "");
+        const exact = govList.find(g => g.nameEn && g.nameEn.toUpperCase().replace(/[^A-Z]/g, "") === n);
+        if (exact) return exact.nameAr;
+        const partial = govList.find(g => g.nameEn && (
+          g.nameEn.toUpperCase().includes(n) || n.includes(g.nameEn.toUpperCase().replace(/[^A-Z]/g, ""))
+        ) && n.length >= 3);
+        return partial?.nameAr ?? null;
+      };
+
+      if (extracted.governorate && govList.length > 0) {
+        // Try Arabic match first
+        const arMatch = matchGovArabic(extracted.governorate);
+        if (arMatch) {
+          extracted.governorate = arMatch;
         } else {
-          extracted.governorate = exactMatch;
+          // Maybe AI returned English — try English match
+          const enMatch = /^[A-Za-z\s]+$/.test(extracted.governorate)
+            ? matchGovEnglish(extracted.governorate)
+            : null;
+          extracted.governorate = enMatch ?? null;
         }
+      }
+
+      // 6b. For passports: if governorate still null, try to find English gov name in raw OCR text
+      if (documentType === "passport" && !extracted.governorate && govList.length > 0) {
+        const upperOcr = rawText.toUpperCase();
+        const found = govList.find(g => {
+          if (!g.nameEn) return false;
+          const en = g.nameEn.toUpperCase().replace(/[^A-Z]/g, "");
+          return en.length >= 3 && upperOcr.replace(/[^A-Z]/g, "").includes(en);
+        });
+        if (found) extracted.governorate = found.nameAr;
+      }
+
+      // 6c. If placeOfBirth was set from English and governorate resolved, update placeOfBirth to Arabic
+      if (extracted.governorate && extracted.placeOfBirth && /^[A-Za-z\s]+$/.test(extracted.placeOfBirth)) {
+        extracted.placeOfBirth = extracted.governorate;
       }
 
       // 7. Passport number fallback — try to extract from raw text if AI missed it
       if (documentType === "passport" && !extracted.documentNumber) {
-        // Pattern A: near "Passport No" or "رقم الجواز"
+        // Pattern A: near "Passport No" or "رقم الجواز" label
         const ppLabelMatch = rawText.match(
           /(?:رقم\s*الجواز|Passport\s*No\.?)\s*[:\s#]*([A-Z]?\d{7,9})/i
         );
         if (ppLabelMatch) {
           extracted.documentNumber = ppLabelMatch[1];
         } else {
-          // Pattern B: standalone 8-9 digit number not part of a date
-          const candidates = [...rawText.matchAll(/(?<!\d)([A-Z]\d{7}|\d{8,9})(?!\d)/g)];
-          const ppNum = candidates.find(m => {
-            const v = m[1];
-            // Exclude obvious dates (year 19xx or 20xx as start)
-            return !/^(19|20)\d{6}$/.test(v);
-          });
-          if (ppNum) extracted.documentNumber = ppNum[1];
+          // Pattern B: MRZ line 2 starts with passport number (digits before first <)
+          const mrzLine = rawText.match(/([A-Z0-9<]{9,}[<][A-Z]{3})/);
+          if (mrzLine) {
+            const ppPart = mrzLine[1].split("<")[0].replace(/[^0-9A-Z]/g, "");
+            if (/^\d{7,9}$/.test(ppPart)) extracted.documentNumber = ppPart;
+          }
+          // Pattern C: standalone 8-9 digit number not part of a date
+          if (!extracted.documentNumber) {
+            const candidates = [...rawText.matchAll(/(?<!\d)(\d{8,9})(?!\d)/g)];
+            const ppNum = candidates.find(m => !/^(19|20)\d{6}$/.test(m[1]));
+            if (ppNum) extracted.documentNumber = ppNum[1];
+          }
+        }
+      }
+
+      // 8. Passport: extract name from MRZ line 1 when Arabic name not found
+      //    MRZ line 1 format: P<YEM{SURNAME}<<{GIVEN1}<{GIVEN2}<{GIVEN3}...
+      //    OCR often garbles P<YEM → TEM / 1 TEM / ITEM etc. but preserves the << separator.
+      if (documentType === "passport" && !extracted.fullName) {
+        const mrzNameLine = rawText.match(/[A-Z]{2,}<<([A-Z<]+)/);
+        if (mrzNameLine) {
+          const fullMrz = mrzNameLine[0];
+          const [surnameRaw, givenRaw] = fullMrz.split("<<");
+          // Strip leading noise (e.g. "TEM" prefix before the real surname)
+          const surnameClean = surnameRaw.replace(/^[^A-Z]*/, "").replace(/^[A-Z]{1,3}(?=[A-Z]{3,})/, "").replace(/<+$/, "").trim();
+          const givenParts   = (givenRaw ?? "").split("<").map(p => p.trim()).filter(p => p.length > 1);
+          // Limit to 4 meaningful name parts (strip filler like L, LL, LLL etc.)
+          const allParts = [surnameClean, ...givenParts].filter(p => /[AEIOU]/i.test(p) && p.length > 1).slice(0, 4);
+          if (allParts.length >= 2) {
+            // Reverse-transliteration lookup table (common Yemeni name components)
+            const TR: Record<string, string> = {
+              AHMED:"احمد", AHMAD:"أحمد", MOHAMMED:"محمد", MUHAMMAD:"محمد", MEHMED:"محمد",
+              ALI:"علي", MANSOUR:"منصور", MANSUR:"منصور", SAQR:"صاقر", SAKR:"صاقر",
+              ABDULWAHAB:"عبدالوهاب", ABDULWARAB:"عبدالوهاب", ABDULAZIZ:"عبدالعزيز",
+              ABDULKARIM:"عبدالكريم", ABDULRAHMAN:"عبدالرحمن", ABDULMALIK:"عبدالملك",
+              SALEH:"صالح", SALIH:"صالح", NASSER:"ناصر", NASIR:"ناصر",
+              OMAR:"عمر", HASSAN:"حسن", HUSSEIN:"حسين", HUSSAIN:"حسين",
+              IBRAHIM:"إبراهيم", ISMAIL:"إسماعيل", KHALED:"خالد", KHALID:"خالد",
+              HANI:"هاني", YAHYA:"يحيى", YOUSUF:"يوسف", YUSUF:"يوسف",
+              SAEED:"سعيد", SAID:"سعيد", WALID:"وليد", WALED:"وليد",
+              FAWZI:"فوزي", FOUAD:"فؤاد", JAMIL:"جميل", MUSTAFA:"مصطفى",
+              ANWAR:"أنور", RAMI:"رامي", TARIQ:"طارق", TAREK:"طارق",
+              SULTAN:"سلطان", MAJED:"ماجد", BILAL:"بلال", ADEL:"عادل",
+              RASHID:"راشد", FAHAD:"فهد", ZAYED:"زايد", HAMID:"حامد",
+              AMEEN:"أمين", AMIN:"أمين", ZAKI:"زكي", NABIL:"نبيل",
+            };
+            const arabicParts = allParts.map(p => TR[p.toUpperCase()] ?? null);
+            // Reorder: in MRZ surname comes first, Arabic order is [given + father + grandfather + family]
+            // So [surname, given1, given2, given3] → Arabic: [given1, given2, given3, surname]
+            const arabicFamilyName = arabicParts[0];
+            const arabicGivenParts = arabicParts.slice(1);
+            const orderedArabic = [...arabicGivenParts, arabicFamilyName].filter(Boolean);
+            if (orderedArabic.length >= 2) {
+              extracted.fullName = orderedArabic.join(" ");
+              extracted._nameFromMRZ = true; // flag for client-side amber display
+            }
+          }
         }
       }
 

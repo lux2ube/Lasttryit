@@ -2071,6 +2071,7 @@ interface ScannedData {
   gender: string | null;
   bloodType: string | null;
   docConfidence: number;
+  _nameFromMRZ?: boolean;
 }
 
 function ScanDocumentDialog({
@@ -2159,6 +2160,7 @@ function ScanDocumentDialog({
         gender: json.extracted?.gender ?? null,
         bloodType: json.extracted?.bloodType ?? null,
         docConfidence: json.extracted?.docConfidence ?? 0,
+        _nameFromMRZ: json.extracted?._nameFromMRZ ?? false,
       };
       setScanned(extracted);
       setEditedData(extracted);
@@ -2342,12 +2344,18 @@ function ScanDocumentDialog({
                 <label className="text-xs font-medium text-muted-foreground">Full Name (الاسم)</label>
                 <Input
                   value={editedData.fullName ?? ""}
-                  onChange={e => updateField("fullName", e.target.value || null)}
+                  onChange={e => { updateField("fullName", e.target.value || null); setEditedData(prev => ({ ...prev, _nameFromMRZ: false })); }}
                   placeholder="محمد علي أحمد"
-                  className="text-right font-arabic"
+                  className={`text-right font-arabic ${editedData._nameFromMRZ ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : ""}`}
                   dir="rtl"
                   data-testid="scan-input-fullname"
                 />
+                {editedData._nameFromMRZ && editedData.fullName && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    Reconstructed from passport MRZ — please verify and correct if needed
+                  </p>
+                )}
               </div>
 
               {/* Document Number */}
