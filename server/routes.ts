@@ -450,43 +450,56 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── KYC DOCUMENT STORAGE (Supabase Bucket) ──────────────────────────────
   const kycUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-  // ── AI Document OCR (Deepseek Vision) ─────────────────────────────────────
-  // Accepts a base64 image, returns structured document data extracted by AI.
-  // Handles: Yemen National ID (north & south designs), Passport.
+  // ── AI Document OCR (Tesseract raw text → Deepseek structured parse) ────────
+  // Flow: client runs Tesseract.js to extract raw text from the image, then
+  // sends that text to this endpoint which asks Deepseek to structure it into
+  // clean fields. Deepseek text models handle Arabic perfectly.
   app.post("/api/ocr/scan-document", requireAuth, async (req, res) => {
     try {
-      const { imageBase64, documentType } = req.body as { imageBase64: string; documentType?: string };
-      if (!imageBase64) return res.status(400).json({ message: "imageBase64 required" });
+      const { rawText, documentType } = req.body as { rawText: string; documentType?: string };
+      if (!rawText || rawText.trim().length < 5) {
+        return res.status(400).json({ message: "rawText required (run Tesseract OCR client-side first)" });
+      }
 
       const apiKey = process.env.DEEPSEEK_API_KEY;
-      if (!apiKey) return res.status(503).json({ message: "OCR service not configured" });
+      if (!apiKey) return res.status(503).json({ message: "OCR service not configured (DEEPSEEK_API_KEY missing)" });
 
-      // Build the prompt tailored to Yemen docs
       const docTypeHint = documentType === "passport"
-        ? "This is a Yemeni PASSPORT (جواز سفر). The MRZ code at the bottom contains the passport number and dates."
-        : "This is a Yemeni National ID card (بطاقة شخصية). It may be the older north design (with a QR-style barcode and separate fields) or the newer south design (single front face with large national number at top). Both are issued by the Ministry of Interior.";
+        ? "The source document is a Yemeni PASSPORT (جواز سفر). The MRZ line at the bottom encodes the passport number and dates."
+        : "The source document is a Yemeni National ID card (بطاقة شخصية / الرقم الوطني). There are two common layouts: the northern design (Republic of Yemen / Ministry of Interior header, separate fields for national number, name, birthplace, birthdate, blood type) and the southern design (single face with large national number prominently displayed).";
 
-      const prompt = `You are an OCR expert specialized in Yemeni identity documents.
+      const prompt = `You are a data extraction specialist for Yemeni identity documents. You will receive raw OCR text scanned from a document and must extract structured fields from it.
 
 ${docTypeHint}
 
-Extract ONLY the following fields from this document image. Return STRICTLY a JSON object with these keys:
-- "fullName": full Arabic name as written on the document
-- "documentNumber": the national ID number (الرقم الوطني) or passport number — digits only, no dashes
-- "dateOfBirth": in YYYY-MM-DD format (تاريخ الميلاد)
-- "placeOfBirth": place of birth as written — usually "governorate - district" in Arabic (مكان الميلاد)
-- "governorate": the Yemeni governorate name in Arabic (المحافظة) extracted from place of birth
-- "district": the district name in Arabic (المديرية) extracted from place of birth, if present
-- "subdistrict": the uzlah/subdistrict in Arabic (العزلة) if present, otherwise null
-- "issueDate": in YYYY-MM-DD format if visible, otherwise null
-- "expiryDate": in YYYY-MM-DD format if visible, otherwise null
-- "gender": "male" or "female" if determinable from الجنس field, otherwise null
-- "docConfidence": a number 0-100 indicating your confidence in the extraction
+Raw OCR text:
+"""
+${rawText}
+"""
 
-Important rules:
-- For dates written as 1992/05/22 → return "1992-05-22"
-- If a field is not visible or not present, return null
-- Return ONLY the JSON object, no explanation, no markdown code blocks`;
+Extract the following fields and return ONLY a valid JSON object (no markdown, no explanation):
+{
+  "fullName": "<full Arabic name as on document, or null>",
+  "documentNumber": "<national ID number or passport number, digits and dashes only, or null>",
+  "dateOfBirth": "<YYYY-MM-DD format, or null>",
+  "placeOfBirth": "<place of birth exactly as written, or null>",
+  "governorate": "<Yemeni governorate (محافظة) in Arabic, or null>",
+  "district": "<district (مديرية) in Arabic, or null>",
+  "subdistrict": "<uzlah (عزلة) in Arabic, or null>",
+  "issueDate": "<YYYY-MM-DD format, or null>",
+  "expiryDate": "<YYYY-MM-DD format, or null>",
+  "gender": "<male|female|null>",
+  "bloodType": "<blood type like A+/B-/O+/AB+, or null>",
+  "docConfidence": <0-100 confidence in extraction quality>
+}
+
+Rules:
+- Dates like 1992/05/22 or 22/05/1992 → convert to YYYY-MM-DD
+- For national IDs the number appears after "الرقم الوطني:" — may have dashes (keep them)
+- fullName appears after "الاسم:" or "الاسم"
+- Place of birth appears after "مكان الميلاد:" — split into governorate and district if possible
+- If a field is not found in the text, return null for that field
+- Return ONLY the JSON object`;
 
       const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
@@ -496,16 +509,8 @@ Important rules:
         },
         body: JSON.stringify({
           model: "deepseek-chat",
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}` } },
-              ],
-            },
-          ],
-          max_tokens: 800,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 600,
           temperature: 0.1,
         }),
       });
@@ -513,20 +518,17 @@ Important rules:
       if (!response.ok) {
         const errText = await response.text();
         console.error("[OCR] Deepseek error:", errText);
-        return res.status(502).json({ message: "OCR service returned an error", detail: errText.slice(0, 200) });
+        return res.status(502).json({ message: "AI parsing service error", detail: errText.slice(0, 200) });
       }
 
       const aiRes = await response.json() as any;
       const content = aiRes.choices?.[0]?.message?.content ?? "";
 
-      // Parse the JSON from the AI response
       let extracted: any = {};
       try {
-        // Strip any markdown code fences if present
         const jsonStr = content.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
         extracted = JSON.parse(jsonStr);
       } catch {
-        // Try to find a JSON object in the response
         const match = content.match(/\{[\s\S]*\}/);
         if (match) {
           try { extracted = JSON.parse(match[0]); } catch { /* leave empty */ }

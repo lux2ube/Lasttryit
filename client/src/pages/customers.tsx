@@ -23,7 +23,8 @@ import {
   Phone, Mail, Globe, CheckCircle, Clock, Ban, Filter,
   ShieldCheck, UserX, Wallet, Star, Loader2, History,
   TrendingUp, TrendingDown, FileText, Upload, X, Tag,
-  Eye, ScanLine, Minus,
+  Eye, ScanLine, Minus, Camera, AlertCircle, UserCheck,
+  ChevronRight, RefreshCw,
 } from "lucide-react";
 import { InfoTip } from "@/components/ui/info-tip";
 import { format } from "date-fns";
@@ -1116,7 +1117,13 @@ function CustomerWalletPanel({ customerId }: { customerId: string }) {
 
 // ── Customer Form Page ────────────────────────────────────────────────────────
 
-function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; customer?: Customer | null }) {
+function CustomerFormPage({
+  onCancel, customer, prefill,
+}: {
+  onCancel: () => void;
+  customer?: Customer | null;
+  prefill?: { data: ScannedData; docType: string; imageData: { name: string; type: string; size: number; data: string } | null };
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [blacklistAlert, setBlacklistAlert] = useState<string[] | null>(null);
@@ -1135,7 +1142,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
   // ── Multi-document state ───────────────────────────────────────────────────
   const initDocs = (): DocItem[] => {
     const raw = (customer?.documentation as any[]) ?? [];
-    return raw.map((d, i) => ({
+    const existing = raw.map((d, i) => ({
       id: String(i),
       type: d.type ?? "national_id",
       customLabel: d.customLabel ?? "",
@@ -1145,6 +1152,20 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
       imageData: d.imageData ?? null,
       storagePath: d.storagePath ?? undefined,
     }));
+    // If we have scanned prefill data, inject it as the first document
+    if (prefill) {
+      const prefillDoc: DocItem = {
+        id: "scan-prefill",
+        type: prefill.docType,
+        customLabel: "",
+        number: prefill.data.documentNumber ?? "",
+        issueDate: prefill.data.issueDate ?? "",
+        expiryDate: prefill.data.expiryDate ?? "",
+        imageData: prefill.imageData,
+      };
+      return [prefillDoc, ...existing];
+    }
+    return existing;
   };
   const [documents, setDocuments] = useState<DocItem[]>(initDocs);
   const [docDialogOpen, setDocDialogOpen] = useState(false);
@@ -1213,9 +1234,9 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
 
   const existingCity   = (customer?.demographics as any)?.city ?? "";
   const cityParts = existingCity.split(" — ");
-  const existingGov    = cityParts[0] ?? "";
-  const existingDistrict = cityParts[1] ?? "";
-  const existingSubDistrict = cityParts[2] ?? "";
+  const existingGov    = prefill?.data.governorate ?? cityParts[0] ?? "";
+  const existingDistrict = prefill?.data.district ?? cityParts[1] ?? "";
+  const existingSubDistrict = prefill?.data.subdistrict ?? cityParts[2] ?? "";
 
   const [selectedGov, setSelectedGov]      = useState(existingGov);
   const [selectedDistrict, setSelectedDistrict] = useState(existingDistrict);
@@ -1271,7 +1292,7 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
       secondName:         customer?.secondName      ?? "",
       thirdName:          customer?.thirdName       ?? "",
       lastName:           customer?.lastName        ?? "",
-      fullName:           customer?.fullName        ?? "",
+      fullName:           prefill?.data.fullName ?? customer?.fullName ?? "",
       email:              customer?.email           ?? "",
       phonePrimary:       customer?.phonePrimary    ?? "+967",
       whatsappGroupId:    customer?.whatsappGroupId ?? "",
@@ -1286,8 +1307,8 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
         return byName ? byName.code : raw;
       })(),
       notes:              customer?.notes           ?? "",
-      gender:             (customer?.demographics as any)?.gender      ?? "",
-      dateOfBirth:        (customer?.demographics as any)?.dob         ?? "",
+      gender:             prefill?.data.gender ?? (customer?.demographics as any)?.gender ?? "",
+      dateOfBirth:        prefill?.data.dateOfBirth ?? (customer?.demographics as any)?.dob ?? "",
       country:            (customer?.demographics as any)?.country     ?? "Yemen",
       city:               existingGov,
       district:           existingDistrict,
@@ -1384,6 +1405,15 @@ function CustomerFormPage({ onCancel, customer }: { onCancel: () => void; custom
           <h1 className="text-lg font-bold">{customer ? `Edit — ${customer.fullName}` : "New Customer"}</h1>
         </div>
       </div>
+
+      {prefill && (
+        <Alert className="mb-4 border-primary/30 bg-primary/5">
+          <Camera className="h-4 w-4 text-primary" />
+          <AlertDescription className="text-xs">
+            <strong>Pre-filled from document scan.</strong> Review the extracted data below — fields have been auto-filled from the scanned {prefill.docType === "passport" ? "passport" : "national ID"}. Edit any incorrect values before saving.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {blacklistAlert && (
         <Alert variant="destructive" className="mb-4">
@@ -1841,6 +1871,470 @@ const recTypeColors: Record<string, string> = {
   "crypto-outflow": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
 
+// ── Scan Document Dialog ──────────────────────────────────────────────────────
+// Standalone AI-powered document scanner that:
+// 1. User uploads/captures image of ID or passport
+// 2. Tesseract.js extracts raw Arabic+English text client-side
+// 3. Raw text sent to server → Deepseek AI structures it into fields
+// 4. User reviews/edits extracted fields in form
+// 5. On save: checks for existing customers with same name/doc number
+//    → if match found: suggests editing that customer instead
+//    → if no match: opens "New Customer" form pre-filled with data
+
+interface ScannedData {
+  fullName: string | null;
+  documentNumber: string | null;
+  dateOfBirth: string | null;
+  placeOfBirth: string | null;
+  governorate: string | null;
+  district: string | null;
+  subdistrict: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  gender: string | null;
+  bloodType: string | null;
+  docConfidence: number;
+}
+
+function ScanDocumentDialog({
+  onClose,
+  onCreateNew,
+  onEditExisting,
+}: {
+  onClose: () => void;
+  onCreateNew: (data: ScannedData, docType: string, imageData: { name: string; type: string; size: number; data: string } | null) => void;
+  onEditExisting: (customerId: string, data: ScannedData, docType: string, imageData: { name: string; type: string; size: number; data: string } | null) => void;
+}) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<"upload" | "ocr" | "review" | "duplicate">("upload");
+  const [docType, setDocType] = useState<"national_id" | "passport">("national_id");
+  const [imageData, setImageData] = useState<{ name: string; type: string; size: number; data: string } | null>(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [rawOcrText, setRawOcrText] = useState("");
+  const [scanned, setScanned] = useState<ScannedData>({
+    fullName: null, documentNumber: null, dateOfBirth: null, placeOfBirth: null,
+    governorate: null, district: null, subdistrict: null, issueDate: null,
+    expiryDate: null, gender: null, bloodType: null, docConfidence: 0,
+  });
+  const [editedData, setEditedData] = useState<ScannedData>({ ...scanned });
+  const [duplicates, setDuplicates] = useState<Customer[]>([]);
+  const [checking, setChecking] = useState(false);
+
+  const updateField = (key: keyof ScannedData, val: string | null) =>
+    setEditedData(prev => ({ ...prev, [key]: val }));
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Max 10 MB", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageData({ name: file.name, type: file.type, size: file.size, data: reader.result as string });
+      setStep("ocr");
+      runOcrAndParse(reader.result as string, file.type);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const runOcrAndParse = async (dataUrl: string, mimeType: string) => {
+    setOcrProgress(0);
+    setRawOcrText("");
+    try {
+      // Step 1: Tesseract extracts raw text
+      const { data } = await Tesseract.recognize(dataUrl, "ara+eng", {
+        logger: (m: any) => {
+          if (m.status === "recognizing text") setOcrProgress(Math.round(m.progress * 70));
+        },
+      });
+      const rawText = data.text;
+      setRawOcrText(rawText);
+      setOcrProgress(75);
+
+      // Step 2: Send raw text to Deepseek for intelligent parsing
+      const res = await fetch("/api/ocr/scan-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rawText, documentType: docType }),
+      });
+      setOcrProgress(95);
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message ?? "AI parsing failed");
+      }
+
+      const json = await res.json();
+      const extracted: ScannedData = {
+        fullName: json.extracted?.fullName ?? null,
+        documentNumber: json.extracted?.documentNumber ?? null,
+        dateOfBirth: json.extracted?.dateOfBirth ?? null,
+        placeOfBirth: json.extracted?.placeOfBirth ?? null,
+        governorate: json.extracted?.governorate ?? null,
+        district: json.extracted?.district ?? null,
+        subdistrict: json.extracted?.subdistrict ?? null,
+        issueDate: json.extracted?.issueDate ?? null,
+        expiryDate: json.extracted?.expiryDate ?? null,
+        gender: json.extracted?.gender ?? null,
+        bloodType: json.extracted?.bloodType ?? null,
+        docConfidence: json.extracted?.docConfidence ?? 0,
+      };
+      setScanned(extracted);
+      setEditedData(extracted);
+      setOcrProgress(100);
+      setStep("review");
+    } catch (err: any) {
+      toast({ title: "Scan failed", description: err.message, variant: "destructive" });
+      setStep("upload");
+    }
+  };
+
+  const checkDuplicates = async () => {
+    setChecking(true);
+    try {
+      const params = new URLSearchParams();
+      if (editedData.fullName) params.set("search", editedData.fullName);
+      const res = await fetch(`/api/customers?${params.toString()}`, { credentials: "include" });
+      const list: Customer[] = await res.json();
+
+      const matches = list.filter(c => {
+        const nameMatch = editedData.fullName && c.fullName &&
+          c.fullName.includes(editedData.fullName.split(" ")[0]);
+        const docMatch = editedData.documentNumber && (c.documentation as any[] ?? [])
+          .some((d: any) => d.number === editedData.documentNumber);
+        return nameMatch || docMatch;
+      });
+
+      if (matches.length > 0) {
+        setDuplicates(matches);
+        setStep("duplicate");
+      } else {
+        // No duplicate — go straight to create new
+        onCreateNew(editedData, docType, imageData);
+      }
+    } catch {
+      onCreateNew(editedData, docType, imageData);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const confidence = editedData.docConfidence ?? 0;
+  const confidenceColor = confidence >= 80 ? "text-emerald-600" : confidence >= 50 ? "text-amber-600" : "text-red-500";
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Camera className="w-4 h-4 text-primary" />
+            Scan Identity Document
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Upload a photo of a Yemeni National ID (front) or Passport — AI will extract the data automatically
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* ── Step 1: Upload ──────────────────────────────────────── */}
+        {step === "upload" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              {(["national_id", "passport"] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setDocType(t)}
+                  data-testid={`scan-type-${t}`}
+                  className={`p-3 rounded-lg border-2 text-sm font-medium transition-colors ${
+                    docType === t
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40"
+                  }`}
+                >
+                  {t === "national_id" ? "🪪 National ID" : "📘 Passport"}
+                </button>
+              ))}
+            </div>
+
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileSelect} />
+
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              data-testid="button-scan-upload"
+              className="w-full border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 hover:bg-primary/5 transition-colors"
+            >
+              <Camera className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm font-medium">Take photo or upload image</p>
+              <p className="text-xs text-muted-foreground mt-1">JPG, PNG · Max 10 MB</p>
+            </button>
+
+            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Tips for best results:</p>
+              <ul className="text-xs text-muted-foreground/80 space-y-0.5 list-disc list-inside">
+                <li>Place document on a flat, dark surface</li>
+                <li>Ensure all 4 corners are visible</li>
+                <li>Good lighting — no glare or shadows</li>
+                <li>Hold camera steady — no blur</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: OCR in progress ────────────────────────────── */}
+        {step === "ocr" && (
+          <div className="space-y-5 py-4">
+            {imageData && (
+              <div className="rounded-lg border border-border overflow-hidden max-h-40">
+                <img src={imageData.data} alt="Document" className="w-full object-contain max-h-40" />
+              </div>
+            )}
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{ocrProgress < 75 ? "Reading text from image..." : ocrProgress < 95 ? "AI parsing Arabic fields..." : "Finalizing..."}</span>
+                <span>{ocrProgress}%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div
+                  className="bg-primary h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${ocrProgress}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Extracting document data — please wait</span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 3: Review extracted data ─────────────────────── */}
+        {step === "review" && (
+          <div className="space-y-4">
+            {imageData && (
+              <div className="rounded-lg border border-border overflow-hidden max-h-32">
+                <img src={imageData.data} alt="Document" className="w-full object-contain max-h-32" />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Extracted Data — review & correct if needed</p>
+              <span className={`text-xs font-semibold ${confidenceColor}`}>
+                {confidence}% confidence
+              </span>
+            </div>
+
+            {rawOcrText && confidence < 60 && (
+              <Alert>
+                <AlertCircle className="h-3.5 w-3.5" />
+                <AlertDescription className="text-xs">
+                  Low confidence — please check all fields carefully before saving.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-3">
+              {/* Full Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Full Name (الاسم)</label>
+                <Input
+                  value={editedData.fullName ?? ""}
+                  onChange={e => updateField("fullName", e.target.value || null)}
+                  placeholder="محمد علي أحمد"
+                  className="text-right font-arabic"
+                  dir="rtl"
+                  data-testid="scan-input-fullname"
+                />
+              </div>
+
+              {/* Document Number */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {docType === "passport" ? "Passport Number" : "National ID Number (الرقم الوطني)"}
+                </label>
+                <Input
+                  value={editedData.documentNumber ?? ""}
+                  onChange={e => updateField("documentNumber", e.target.value || null)}
+                  placeholder={docType === "passport" ? "10469482" : "6994-4094-3317"}
+                  className="font-mono"
+                  data-testid="scan-input-docnumber"
+                />
+              </div>
+
+              {/* Date of Birth */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Date of Birth (تاريخ الميلاد)</label>
+                  <Input
+                    value={editedData.dateOfBirth ?? ""}
+                    onChange={e => updateField("dateOfBirth", e.target.value || null)}
+                    placeholder="YYYY-MM-DD"
+                    data-testid="scan-input-dob"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Gender (الجنس)</label>
+                  <Select
+                    value={editedData.gender ?? ""}
+                    onValueChange={v => updateField("gender", v || null)}
+                  >
+                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male (ذكر)</SelectItem>
+                      <SelectItem value="female">Female (أنثى)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Place of Birth */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Place of Birth (مكان الميلاد)</label>
+                <Input
+                  value={editedData.placeOfBirth ?? ""}
+                  onChange={e => updateField("placeOfBirth", e.target.value || null)}
+                  placeholder="عدن - المنصورة"
+                  className="text-right"
+                  dir="rtl"
+                  data-testid="scan-input-placeofbirth"
+                />
+              </div>
+
+              {/* Governorate / District / Subdistrict */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Governorate (المحافظة)</label>
+                  <Input
+                    value={editedData.governorate ?? ""}
+                    onChange={e => updateField("governorate", e.target.value || null)}
+                    placeholder="عدن"
+                    className="text-right"
+                    dir="rtl"
+                    data-testid="scan-input-governorate"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">District (المديرية)</label>
+                  <Input
+                    value={editedData.district ?? ""}
+                    onChange={e => updateField("district", e.target.value || null)}
+                    placeholder="الشيخ عثمان"
+                    className="text-right"
+                    dir="rtl"
+                    data-testid="scan-input-district"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Uzlah (العزلة)</label>
+                  <Input
+                    value={editedData.subdistrict ?? ""}
+                    onChange={e => updateField("subdistrict", e.target.value || null)}
+                    placeholder="—"
+                    className="text-right"
+                    dir="rtl"
+                    data-testid="scan-input-subdistrict"
+                  />
+                </div>
+              </div>
+
+              {/* Issue / Expiry dates */}
+              {(docType === "passport" || editedData.issueDate || editedData.expiryDate) && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Issue Date</label>
+                    <Input
+                      value={editedData.issueDate ?? ""}
+                      onChange={e => updateField("issueDate", e.target.value || null)}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Expiry Date</label>
+                    <Input
+                      value={editedData.expiryDate ?? ""}
+                      onChange={e => updateField("expiryDate", e.target.value || null)}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => { setStep("upload"); setImageData(null); }}
+                className="gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />Rescan
+              </Button>
+              <Button
+                type="button" size="sm" className="flex-1"
+                onClick={checkDuplicates}
+                disabled={checking || !editedData.fullName}
+                data-testid="button-scan-continue"
+              >
+                {checking ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Checking...</> : <>Continue <ChevronRight className="w-3.5 h-3.5 ml-1" /></>}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Duplicate detected ─────────────────────────── */}
+        {step === "duplicate" && (
+          <div className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Possible duplicate detected.</strong> The following customers may already be in the system. Do you want to add this document to an existing customer or create a new one?
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              {duplicates.map(c => (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 cursor-pointer transition-colors"
+                  onClick={() => onEditExisting(c.id, editedData, docType, imageData)}
+                  data-testid={`dup-customer-${c.id}`}
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <UserCheck className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{c.fullName}</p>
+                    <p className="text-xs text-muted-foreground">{c.customerId} · {c.phonePrimary}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              ))}
+            </div>
+
+            <Button
+              type="button" variant="outline" className="w-full gap-1.5"
+              onClick={() => onCreateNew(editedData, docType, imageData)}
+              data-testid="button-scan-create-new"
+            >
+              <Plus className="w-3.5 h-3.5" />Create as New Customer
+            </Button>
+
+            <Button
+              type="button" variant="ghost" size="sm" className="w-full"
+              onClick={() => setStep("review")}
+            >
+              Back to Review
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DocPreviewDialog({ doc, onClose }: { doc: DocItem; onClose: () => void }) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1993,6 +2487,12 @@ export default function Customers() {
     try { return sessionStorage.getItem("cust_editId"); } catch { return null; }
   });
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  // Scanned data pre-fill: passed into CustomerFormPage when creating from scan
+  const [scannedPrefill, setScannedPrefill] = useState<{
+    data: ScannedData; docType: string;
+    imageData: { name: string; type: string; size: number; data: string } | null;
+  } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -2041,6 +2541,27 @@ export default function Customers() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const handleScanCreateNew = (data: ScannedData, docType: string, imgData: { name: string; type: string; size: number; data: string } | null) => {
+    setScanOpen(false);
+    setScannedPrefill({ data, docType, imageData: imgData });
+    setEditCustomer(null);
+    setFormMode("create");
+  };
+
+  const handleScanEditExisting = (customerId: string, data: ScannedData, docType: string, imgData: { name: string; type: string; size: number; data: string } | null) => {
+    setScanOpen(false);
+    setScannedPrefill({ data, docType, imageData: imgData });
+    // Find and open the existing customer
+    const found = customerList?.find(c => c.id === customerId);
+    if (found) {
+      setEditCustomer(found);
+      setFormMode("edit");
+    } else {
+      setPendingEditId(customerId);
+      setFormMode("edit");
+    }
+  };
+
   if (formMode !== null) {
     if (formMode === "edit" && !editCustomer && pendingEditId) {
       return (
@@ -2055,23 +2576,37 @@ export default function Customers() {
         onCancel={() => {
           setFormMode(null);
           setEditCustomer(null);
+          setScannedPrefill(null);
           try { sessionStorage.removeItem("cust_editId"); sessionStorage.removeItem("cust_formMode"); } catch {}
         }}
         customer={editCustomer}
+        prefill={scannedPrefill ?? undefined}
       />
     );
   }
 
   return (
     <div className="flex flex-col h-full overflow-auto p-6">
+      {scanOpen && (
+        <ScanDocumentDialog
+          onClose={() => setScanOpen(false)}
+          onCreateNew={handleScanCreateNew}
+          onEditExisting={handleScanEditExisting}
+        />
+      )}
       <div className="flex items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Customers</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{customerList?.length ?? 0} customers in the system</p>
         </div>
-        <Button onClick={() => { setEditCustomer(null); try { sessionStorage.removeItem("cust_editId"); } catch {} setFormMode("create"); }} data-testid="button-new-customer">
-          <Plus className="w-4 h-4 mr-2" />New Customer
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setScanOpen(true)} data-testid="button-scan-document">
+            <Camera className="w-4 h-4 mr-2" />Scan Document
+          </Button>
+          <Button onClick={() => { setEditCustomer(null); setScannedPrefill(null); try { sessionStorage.removeItem("cust_editId"); } catch {} setFormMode("create"); }} data-testid="button-new-customer">
+            <Plus className="w-4 h-4 mr-2" />New Customer
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
