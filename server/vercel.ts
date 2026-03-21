@@ -33,11 +33,32 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
+// Config check — shows which required env vars are missing (safe: no secret values exposed)
+app.get("/api/config-check", (_req, res) => {
+  const required = ["SUPABASE_DATABASE_URL", "SESSION_SECRET"];
+  const optional = ["DEEPSEEK_API_KEY", "WA_BRIDGE_API_KEY"];
+  const missing = required.filter(k => !process.env[k]);
+  const missingOptional = optional.filter(k => !process.env[k]);
+  res.json({
+    ok: missing.length === 0,
+    missing,
+    missingOptional,
+    initError,
+    node_env: process.env.NODE_ENV,
+  });
+});
+
 let initPromise: Promise<void> | null = null;
 let initError: string | null = null;
 
 async function doInit() {
   console.log("[vercel] starting init...");
+
+  // Validate critical env vars before heavy imports
+  const missing = ["SUPABASE_DATABASE_URL", "SESSION_SECRET"].filter(k => !process.env[k]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables on Vercel: ${missing.join(", ")}. Set them in Vercel → Project Settings → Environment Variables.`);
+  }
 
   console.log("[vercel] importing routes...");
   const { registerRoutes } = await import("./routes");
@@ -76,7 +97,7 @@ function ensureInit(): Promise<void> {
 }
 
 async function handler(req: any, res: any) {
-  if (req.url === "/api/health" && !initPromise) {
+  if (req.url === "/api/health" || req.url === "/api/config-check") {
     app(req, res);
     return;
   }
@@ -88,7 +109,8 @@ async function handler(req: any, res: any) {
     console.error("[vercel] Handler error:", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ message: "Server initialization failed" }));
+    const msg = initError ?? err?.message ?? "Server initialization failed";
+    res.end(JSON.stringify({ message: msg }));
   }
 }
 
