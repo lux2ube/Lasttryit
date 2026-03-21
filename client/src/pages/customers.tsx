@@ -1407,23 +1407,37 @@ function CustomerFormPage({
     form.setValue("fullName", parts.join(" "));
   };
 
+  // Normalize Arabic names for comparison: collapse spaces, unify alef/hamza variants, taa marbouta
+  const normalizeArName = (s: string) =>
+    s.trim().replace(/\s+/g, " ").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+
   // Pre-save duplicate check (only for new customers, not edits)
   const checkForDuplicatesBeforeSave = async (data: CustomerForm): Promise<Customer[]> => {
     if (customer) return []; // editing existing — skip
     try {
-      const firstWord = (data.firstName || data.fullName || "").trim().split(/\s+/)[0];
-      if (!firstWord) return [];
+      // Build the new customer's full name from parts
+      const newFullName = normalizeArName(
+        data.fullName ||
+        [data.firstName, data.secondName, data.thirdName, data.lastName].filter(Boolean).join(" ")
+      );
+      if (!newFullName) return [];
+
+      // Search by first name component to narrow candidates, then compare FULL names
+      const firstWord = (data.firstName || newFullName).trim().split(/\s+/)[0];
       const res = await fetch(`/api/customers?search=${encodeURIComponent(firstWord)}`, { credentials: "include" });
       if (!res.ok) return [];
       const list: Customer[] = await res.json();
-      // Check for name match (same first name word) or document ID match
+
       const docNumbers = documents
         .map(d => d.number)
         .filter(Boolean)
         .map(n => n.trim());
+
       return list.filter(c => {
-        const cFirstWord = (c.firstName || c.fullName || "").trim().split(/\s+/)[0];
-        const nameMatch = cFirstWord && firstWord && cFirstWord === firstWord;
+        // FULL name must match exactly (after normalization) — not just the first word
+        const existingFullName = normalizeArName(c.fullName || "");
+        const nameMatch = newFullName.length > 3 && existingFullName === newFullName;
+
         const docMatch = docNumbers.some(num =>
           (c.documentation as any[] ?? []).some((d: any) => d.number && d.number.trim() === num)
         );

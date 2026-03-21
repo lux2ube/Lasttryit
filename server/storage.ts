@@ -356,30 +356,25 @@ export class DatabaseStorage implements IStorage {
     return found;
   }
   async findCustomerByFullName(name: string, excludeId?: string) {
-    // Normalize both sides identically:
-    //  1. Trim + collapse internal whitespace to single space
-    //  2. Normalize Arabic alef variants (أإآ → ا) so OCR/typing differences don't bypass the check
-    //  3. Lowercase (handles any Latin mixed names)
+    // Normalize Arabic names: collapse spaces, unify alef/hamza variants, taa marbouta, lowercase
     const normalizeAr = (s: string) =>
-      s.trim()
-       .replace(/\s+/g, " ")
-       .replace(/[أإآ]/g, "ا")
-       .replace(/ة/g, "ه")
-       .toLowerCase();
+      s.trim().replace(/\s+/g, " ").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
     const normalized = normalizeAr(name);
-    // SQL side: collapse whitespace, normalize alef variants, lowercase
-    const conditions: any[] = [
-      sql`lower(
-        translate(
-          regexp_replace(trim(${customers.fullName}), '\\s+', ' ', 'g'),
-          'أإآة',
-          'اااه'
-        )
-      ) = ${normalized}`,
-    ];
-    if (excludeId) conditions.push(ne(customers.id, excludeId));
-    const [found] = await db.select().from(customers).where(and(...conditions));
-    return found;
+    if (!normalized) return undefined;
+
+    // Fetch all customers (optionally excluding the one being edited) and compare in JS
+    // This avoids complex SQL transliteration that may fail with Arabic Unicode in some drivers
+    let query = db.select({
+      id: customers.id, customerId: customers.customerId,
+      fullName: customers.fullName, phonePrimary: customers.phonePrimary,
+    }).from(customers).$dynamic();
+    if (excludeId) query = query.where(ne(customers.id, excludeId));
+    const all = await query;
+    const match = all.find(c => normalizeAr(c.fullName) === normalized);
+    if (!match) return undefined;
+    // Fetch the full record
+    const [full] = await db.select().from(customers).where(eq(customers.id, match.id));
+    return full;
   }
   async getAllCustomers(filters?: { search?: string; status?: string; verificationStatus?: string; riskLevel?: string }) {
     let query = db.select().from(customers).$dynamic();
