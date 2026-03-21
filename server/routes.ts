@@ -450,6 +450,96 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── KYC DOCUMENT STORAGE (Supabase Bucket) ──────────────────────────────
   const kycUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+  // ── AI Document OCR (Deepseek Vision) ─────────────────────────────────────
+  // Accepts a base64 image, returns structured document data extracted by AI.
+  // Handles: Yemen National ID (north & south designs), Passport.
+  app.post("/api/ocr/scan-document", requireAuth, async (req, res) => {
+    try {
+      const { imageBase64, documentType } = req.body as { imageBase64: string; documentType?: string };
+      if (!imageBase64) return res.status(400).json({ message: "imageBase64 required" });
+
+      const apiKey = process.env.DEEPSEEK_API_KEY;
+      if (!apiKey) return res.status(503).json({ message: "OCR service not configured" });
+
+      // Build the prompt tailored to Yemen docs
+      const docTypeHint = documentType === "passport"
+        ? "This is a Yemeni PASSPORT (جواز سفر). The MRZ code at the bottom contains the passport number and dates."
+        : "This is a Yemeni National ID card (بطاقة شخصية). It may be the older north design (with a QR-style barcode and separate fields) or the newer south design (single front face with large national number at top). Both are issued by the Ministry of Interior.";
+
+      const prompt = `You are an OCR expert specialized in Yemeni identity documents.
+
+${docTypeHint}
+
+Extract ONLY the following fields from this document image. Return STRICTLY a JSON object with these keys:
+- "fullName": full Arabic name as written on the document
+- "documentNumber": the national ID number (الرقم الوطني) or passport number — digits only, no dashes
+- "dateOfBirth": in YYYY-MM-DD format (تاريخ الميلاد)
+- "placeOfBirth": place of birth as written — usually "governorate - district" in Arabic (مكان الميلاد)
+- "governorate": the Yemeni governorate name in Arabic (المحافظة) extracted from place of birth
+- "district": the district name in Arabic (المديرية) extracted from place of birth, if present
+- "subdistrict": the uzlah/subdistrict in Arabic (العزلة) if present, otherwise null
+- "issueDate": in YYYY-MM-DD format if visible, otherwise null
+- "expiryDate": in YYYY-MM-DD format if visible, otherwise null
+- "gender": "male" or "female" if determinable from الجنس field, otherwise null
+- "docConfidence": a number 0-100 indicating your confidence in the extraction
+
+Important rules:
+- For dates written as 1992/05/22 → return "1992-05-22"
+- If a field is not visible or not present, return null
+- Return ONLY the JSON object, no explanation, no markdown code blocks`;
+
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}` } },
+              ],
+            },
+          ],
+          max_tokens: 800,
+          temperature: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("[OCR] Deepseek error:", errText);
+        return res.status(502).json({ message: "OCR service returned an error", detail: errText.slice(0, 200) });
+      }
+
+      const aiRes = await response.json() as any;
+      const content = aiRes.choices?.[0]?.message?.content ?? "";
+
+      // Parse the JSON from the AI response
+      let extracted: any = {};
+      try {
+        // Strip any markdown code fences if present
+        const jsonStr = content.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
+        extracted = JSON.parse(jsonStr);
+      } catch {
+        // Try to find a JSON object in the response
+        const match = content.match(/\{[\s\S]*\}/);
+        if (match) {
+          try { extracted = JSON.parse(match[0]); } catch { /* leave empty */ }
+        }
+      }
+
+      res.json({ success: true, extracted, rawResponse: content });
+    } catch (e: any) {
+      console.error("[OCR] Error:", e.message);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/customers/:id/kyc-upload", requireAuth, requireRole("admin", "operations_manager", "finance_officer"),
     kycUpload.single("file"), async (req, res) => {
     try {
