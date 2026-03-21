@@ -510,11 +510,15 @@ function PhoneInput({ value, onChange, placeholder = "7X XXX XXXX", "data-testid
     propagate(countryCode, raw);
   };
 
+  const selected = COUNTRY_CODES.find(c => c.code === countryCode);
   return (
     <div className="flex gap-2">
       <Select value={countryCode} onValueChange={handleCodeChange}>
-        <SelectTrigger className="w-36 shrink-0 font-mono text-xs">
-          <SelectValue />
+        <SelectTrigger className="w-[6.5rem] shrink-0 font-mono text-xs px-2">
+          <span className="flex items-center gap-1.5 overflow-hidden">
+            <span>{selected?.flag}</span>
+            <span className="font-mono">{countryCode}</span>
+          </span>
         </SelectTrigger>
         <SelectContent>
           {COUNTRY_CODES.map(c => (
@@ -532,7 +536,7 @@ function PhoneInput({ value, onChange, placeholder = "7X XXX XXXX", "data-testid
         value={localNumber}
         onChange={handleLocalChange}
         placeholder={placeholder}
-        className="flex-1 font-mono"
+        className="flex-1 font-mono min-w-0"
         data-testid={testId}
         inputMode="tel"
       />
@@ -2608,9 +2612,9 @@ function DocPreviewDialog({ doc, onClose }: { doc: DocItem; onClose: () => void 
 
 function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onClose: () => void }) {
   const { data: records, isLoading: recLoading } = useQuery<HistoryRecord[]>({
-    queryKey: ["/api/records", customer.id],
+    queryKey: ["/api/records", customer.customerId],
     queryFn: async () => {
-      const res = await fetch(`/api/records?customerId=${customer.id}`, { credentials: "include" });
+      const res = await fetch(`/api/records?customerId=${customer.customerId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
