@@ -85,11 +85,13 @@ function extractBetween(text: string, afterStr: string, beforeStr: string): stri
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   const PgSession = connectPgSimple(session);
+  const sessionDbUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: sessionDbUrl,
     max: 2,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
+    ssl: process.env.SUPABASE_DATABASE_URL ? { rejectUnauthorized: false } : undefined,
   });
 
   const isProd = process.env.NODE_ENV === "production";
