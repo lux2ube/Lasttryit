@@ -80,7 +80,7 @@ export default function TrialBalance() {
       </div>
 
       {/* Totals bar */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Total Debits",  value: data?.totalDebit,  color: "text-blue-700 dark:text-blue-300" },
           { label: "Total Credits", value: data?.totalCredit, color: "text-orange-700 dark:text-orange-300" },

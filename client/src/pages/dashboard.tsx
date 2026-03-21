@@ -122,7 +122,7 @@ function KpiCard({ label, value, sub, icon: Icon, gradient, trend }: {
             <TrendIcon className={`w-4 h-4 ${trend === "up" ? "text-emerald-500" : "text-red-400"}`} />
           )}
         </div>
-        <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{value}</p>
+        <p className="text-xl sm:text-2xl font-bold tracking-tight text-foreground tabular-nums">{value}</p>
         <p className="text-xs font-medium text-foreground/70 mt-0.5">{label}</p>
         {sub && <p className="text-[11px] text-muted-foreground mt-1">{sub}</p>}
       </CardContent>

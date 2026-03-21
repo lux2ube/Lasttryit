@@ -144,7 +144,7 @@ export default function CustomerLedger() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Active Customers",   value: data?.customers.filter(c => c.customerStatus === "active").length ?? 0,  color: "text-emerald-600" },
           { label: "With CR Balance",    value: data?.customers.filter(c => c.balance > 0).length ?? 0,                  color: "text-blue-600" },

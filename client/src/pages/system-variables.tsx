@@ -97,7 +97,7 @@ function VariableFormPage({
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(v => upsertMutation.mutate(v))} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField control={form.control} name="key" render={({ field }) => (
               <FormItem>
                 <FormLabel>Key *</FormLabel>
@@ -117,7 +117,7 @@ function VariableFormPage({
             )} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField control={form.control} name="category" render={({ field }) => (
               <FormItem>
                 <FormLabel>Category *</FormLabel>

@@ -118,7 +118,7 @@ function NewPaymentDialog({ open, onClose }: { open: boolean; onClose: () => voi
               data-testid="input-kuraimi-customer-name"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium mb-1 block">Amount *</label>
               <Input
@@ -207,7 +207,7 @@ function PaymentDetailDialog({ payment, onClose }: { payment: KuraimiPayment; on
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-muted-foreground">Customer ID</p>
               <p className="font-semibold">{payment.scustId}</p>

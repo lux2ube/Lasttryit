@@ -138,7 +138,7 @@ function AccountFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="space-y-3">
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="code" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">Code * <InfoTip text="1xxx Asset · 2xxx Liability · 3xxx Equity · 4xxx Revenue · 5xxx Expense" /></FormLabel>
@@ -176,7 +176,7 @@ function AccountFormDialog({
               </FormItem>
             )} />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="subtype" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Subtype</FormLabel>
@@ -212,7 +212,7 @@ function AccountFormDialog({
               )} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="parentCode" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">Parent <InfoTip text="Only parent/control accounts shown" /></FormLabel>
@@ -254,7 +254,7 @@ function AccountFormDialog({
               )} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="buyRate" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">Buy Rate <InfoTip text="Rate when we buy from customer. Leave blank for crypto/USD." /></FormLabel>
@@ -393,7 +393,7 @@ export default function ChartOfAccountsPage() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto px-6 pb-6">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-3 sm:pb-6">
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">Loading chart of accounts…</div>
         ) : filtered.length === 0 ? (

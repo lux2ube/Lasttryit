@@ -1086,7 +1086,7 @@ function CustomerWalletPanel({ customerId }: { customerId: string }) {
               )} />
 
               {/* Provider name + type + network — editable; auto-filled when provider selected */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <FormField control={walletForm.control} name="providerName" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Provider Name *</FormLabel>
@@ -1820,7 +1820,7 @@ function CustomerFormPage({
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium">Document Type *</label>
                         <Select value={docForm.type} onValueChange={v => setDocForm(prev => ({ ...prev, type: v }))}>
@@ -1841,7 +1841,7 @@ function CustomerFormPage({
                       <Input placeholder="e.g. Y-12345678" className="font-mono" value={docForm.number} onChange={e => setDocForm(prev => ({ ...prev, number: e.target.value }))} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium">Issue Date</label>
                         <SmartDateInput value={docForm.issueDate} onChange={v => setDocForm(prev => ({ ...prev, issueDate: v }))} placeholder="YYYY-MM-DD" />
@@ -2337,7 +2337,7 @@ function ScanDocumentDialog({
               onChange={handleFileSelect}
             />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => document.getElementById("scan-camera-input")?.click()}
@@ -2746,7 +2746,7 @@ function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onCl
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 text-center text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-center text-sm">
           <div className="rounded-lg border border-border p-3">
             <p className="text-xs text-muted-foreground mb-1">Records</p>
             <p className="font-bold text-lg">{records?.length ?? "—"}</p>

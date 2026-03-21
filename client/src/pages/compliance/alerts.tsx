@@ -184,23 +184,23 @@ export default function ComplianceAlertsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 px-6 pt-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-3 sm:px-6 pt-4">
         <div className={`rounded-lg border p-3 ${openCriticals > 0 ? "border-red-200 bg-red-50 dark:bg-red-900/20" : "border-border bg-muted/30"}`}>
-          <p className={`text-2xl font-bold ${openCriticals > 0 ? "text-red-600 dark:text-red-400" : ""}`}>{openCriticals}</p>
+          <p className={`text-xl sm:text-2xl font-bold ${openCriticals > 0 ? "text-red-600 dark:text-red-400" : ""}`}>{openCriticals}</p>
           <p className={`text-xs mt-0.5 ${openCriticals > 0 ? "text-red-500" : "text-muted-foreground"}`}>Open Criticals</p>
         </div>
         <div className={`rounded-lg border p-3 ${openWarnings > 0 ? "border-amber-200 bg-amber-50 dark:bg-amber-900/20" : "border-border bg-muted/30"}`}>
-          <p className={`text-2xl font-bold ${openWarnings > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>{openWarnings}</p>
+          <p className={`text-xl sm:text-2xl font-bold ${openWarnings > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>{openWarnings}</p>
           <p className={`text-xs mt-0.5 ${openWarnings > 0 ? "text-amber-500" : "text-muted-foreground"}`}>Open Warnings</p>
         </div>
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 p-3">
-          <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{resolvedToday}</p>
+          <p className="text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-300">{resolvedToday}</p>
           <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">Resolved Today</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 px-6 pt-3 pb-2 flex-wrap">
+      <div className="flex items-center gap-2 px-3 sm:px-6 pt-3 pb-2 flex-wrap">
         <Input
           placeholder="Search alerts…"
           value={search}
@@ -246,7 +246,7 @@ export default function ComplianceAlertsPage() {
       </div>
 
       {/* Alert List */}
-      <div className="flex-1 overflow-auto px-6 pb-6 space-y-2">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-3 sm:pb-6 space-y-2">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
         ) : filtered.length === 0 ? (

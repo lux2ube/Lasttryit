@@ -164,7 +164,7 @@ function FollowUpDialog({
             )} />
 
             {/* Priority + Status */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="priority" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Priority</FormLabel>
@@ -194,7 +194,7 @@ function FollowUpDialog({
             </div>
 
             {/* Due date + time */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="dueDate" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Due Date</FormLabel>

@@ -386,15 +386,15 @@ export default function WalletSyncPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-3 sm:px-6 pt-4 pb-2">
         <div className="rounded-lg border border-border p-3 bg-muted/30">
-          <p className="text-2xl font-bold">{wallets.length}</p>
+          <p className="text-xl sm:text-2xl font-bold">{wallets.length}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Watched Wallets</p>
         </div>
         <div className="rounded-lg border border-border p-3 bg-emerald-50 dark:bg-emerald-900/20">
-          <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{totalSynced}</p>
+          <p className="text-xl sm:text-2xl font-bold text-emerald-700 dark:text-emerald-300">{totalSynced}</p>
           <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">Records Auto-Created</p>
         </div>
         <div className={`rounded-lg border p-3 ${errorCount > 0 ? "border-red-200 bg-red-50 dark:bg-red-900/20" : "border-border bg-muted/30"}`}>
-          <p className={`text-2xl font-bold ${errorCount > 0 ? "text-red-600 dark:text-red-400" : ""}`}>{activeCount}</p>
+          <p className={`text-xl sm:text-2xl font-bold ${errorCount > 0 ? "text-red-600 dark:text-red-400" : ""}`}>{activeCount}</p>
           <p className={`text-xs mt-0.5 ${errorCount > 0 ? "text-red-500" : "text-muted-foreground"}`}>
             {errorCount > 0 ? `${errorCount} with errors` : "Active Wallets"}
           </p>
@@ -584,7 +584,7 @@ export default function WalletSyncPage() {
       </div>
 
       {/* Info footer */}
-      <div className="px-6 pb-4">
+      <div className="px-3 sm:px-6 pb-4">
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs text-muted-foreground space-y-1.5">
           <p className="font-semibold text-sm text-foreground flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-amber-500" />How it works</p>
           <p><strong>Auto-sync:</strong> Every 2 minutes, the server polls Ankr API for each active wallet and creates a crypto inflow record for any new incoming transfers found (deduplication prevents double-counting by txHash).</p>

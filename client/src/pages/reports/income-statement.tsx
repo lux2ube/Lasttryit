@@ -90,7 +90,7 @@ export default function IncomeStatement() {
       </div>
 
       {/* KPI summary row */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Total Revenue",  value: data?.totalRevenue,  icon: TrendingUp,   color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20" },
           { label: "Total Expenses", value: data?.totalExpenses, icon: TrendingDown,  color: "text-red-600",     bg: "bg-red-50 dark:bg-red-900/20" },
@@ -118,7 +118,7 @@ export default function IncomeStatement() {
           {[0,1].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-32 w-full" /></CardContent></Card>)}
         </div>
       ) : data ? (
-        <div className="space-y-4 max-w-2xl">
+        <div className="space-y-4">
           <LineGroup
             title="Revenue"
             items={data.revenues}
@@ -144,7 +144,7 @@ export default function IncomeStatement() {
               <p className="text-xs text-muted-foreground">Total Revenue − Total Expenses</p>
             </div>
             <div className="text-right">
-              <p className={`font-mono text-2xl font-bold ${netPositive ? "text-blue-700 dark:text-blue-300" : "text-red-600"}`}>
+              <p className={`font-mono text-xl sm:text-2xl font-bold ${netPositive ? "text-blue-700 dark:text-blue-300" : "text-red-600"}`}>
                 {netPositive ? "" : "("}${fmt2(Math.abs(data.netIncome))}{netPositive ? "" : ")"}
               </p>
               <Badge className={netPositive ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"}>
@@ -157,7 +157,7 @@ export default function IncomeStatement() {
           {data.totalRevenue > 0 && (
             <div className="rounded-lg border border-border p-4 text-sm space-y-2">
               <p className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Profitability Ratios</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Net Margin</p>
                   <p className="font-mono font-bold text-lg text-foreground">

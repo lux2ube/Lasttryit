@@ -89,7 +89,7 @@ function CurrencyDialog({ open, onClose, edit }: { open: boolean; onClose: () =>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="code" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Code *</FormLabel>
@@ -112,7 +112,7 @@ function CurrencyDialog({ open, onClose, edit }: { open: boolean; onClose: () =>
                 <FormMessage />
               </FormItem>
             )} />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="type" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Type</FormLabel>
@@ -364,23 +364,23 @@ export default function Currencies() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <Card><CardContent className="p-4">
           <p className="text-xs text-muted-foreground">Total</p>
-          <p className="text-2xl font-bold">{currencies.length}</p>
+          <p className="text-xl sm:text-2xl font-bold">{currencies.length}</p>
         </CardContent></Card>
         <Card><CardContent className="p-4">
           <p className="text-xs text-muted-foreground">Fiat</p>
-          <p className="text-2xl font-bold text-blue-600">{fiat.length}</p>
+          <p className="text-xl sm:text-2xl font-bold text-blue-600">{fiat.length}</p>
         </CardContent></Card>
         <Card><CardContent className="p-4">
           <p className="text-xs text-muted-foreground">Crypto</p>
-          <p className="text-2xl font-bold text-purple-600">{crypto.length}</p>
+          <p className="text-xl sm:text-2xl font-bold text-purple-600">{crypto.length}</p>
         </CardContent></Card>
         <Card className={missingRateCount > 0 ? "border-amber-300 dark:border-amber-600" : ""}>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Missing Rates</p>
-            <p className={`text-2xl font-bold ${missingRateCount > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
+            <p className={`text-xl sm:text-2xl font-bold ${missingRateCount > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
               {missingRateCount}
             </p>
           </CardContent>

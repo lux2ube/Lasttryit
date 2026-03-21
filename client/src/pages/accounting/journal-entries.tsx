@@ -198,7 +198,7 @@ function JournalEntryDetailDialog({
           <ScrollArea className="flex-1 overflow-auto">
             <div className="space-y-4 pr-4">
               {/* Header info */}
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                 <div><span className="text-muted-foreground">Date:</span> <span className="font-medium font-mono">{entry.entryDate}</span></div>
                 <div><span className="text-muted-foreground">Period:</span> <span className="font-medium">{entry.periodId}</span></div>
                 <div><span className="text-muted-foreground">Base:</span> <span className="font-mono font-medium">{entry.baseCurrency}</span></div>
@@ -429,7 +429,7 @@ function NewJournalEntryDialog({ open, onClose }: { open: boolean; onClose: () =
           <form onSubmit={form.handleSubmit(d => mutation.mutate(d))} className="flex flex-col gap-4 flex-1 overflow-hidden">
 
             {/* Header fields */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <FormField control={form.control} name="periodId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Accounting Period *</FormLabel>
@@ -710,7 +710,7 @@ export default function JournalEntriesPage() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto px-6 pb-6">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-3 sm:pb-6">
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">Loading journal entries…</div>
         ) : filtered.length === 0 ? (

@@ -1165,7 +1165,7 @@ function RecordFormPage({
   });
 
   return (
-    <div className="flex flex-col h-full overflow-auto px-4 py-3 max-w-3xl w-full">
+    <div className="flex flex-col h-full overflow-auto p-3 sm:p-6">
       <div className="flex items-center gap-2 mb-3">
         <Button variant="ghost" size="sm" onClick={onCancel} data-testid="button-back-record" className="h-7 px-2">
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -1698,7 +1698,7 @@ function RecordFormPage({
             {/* ═══ TRANSACTION DETAILS ═══ */}
             {/* Cash — sender/recipient + reference inline */}
             {isCash && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {isInflow ? (
                   <FormField control={form.control} name="clientSenderName" render={({ field }) => (
                     <FormItem>
@@ -1741,7 +1741,7 @@ function RecordFormPage({
             {/* Crypto — platform/destination + TX hash inline */}
             {!isCash && (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {isInflow ? (
                     <FormField control={form.control} name="clientSenderName" render={({ field }) => (
                       <FormItem>
@@ -1908,7 +1908,7 @@ function RecordFormPage({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <FormField control={form.control} name="notes" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">Notes <InfoTip text="Internal notes — not shared with client" /></FormLabel>

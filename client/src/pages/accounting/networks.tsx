@@ -95,7 +95,7 @@ function NetworkFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField control={form.control} name="code" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Code</FormLabel>
@@ -138,7 +138,7 @@ function NetworkFormDialog({
                 <FormMessage />
               </FormItem>
             )} />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField control={form.control} name="networkFeeUsd" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Avg Network Fee (USD)</FormLabel>

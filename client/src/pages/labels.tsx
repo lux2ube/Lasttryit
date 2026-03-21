@@ -222,23 +222,23 @@ export default function Labels() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Total Labels</p>
-            <p className="text-2xl font-bold">{labelList?.length ?? 0}</p>
+            <p className="text-xl sm:text-2xl font-bold">{labelList?.length ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Active</p>
-            <p className="text-2xl font-bold text-emerald-600">{activeCount}</p>
+            <p className="text-xl sm:text-2xl font-bold text-emerald-600">{activeCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Inactive</p>
-            <p className="text-2xl font-bold text-muted-foreground">{inactiveCount}</p>
+            <p className="text-xl sm:text-2xl font-bold text-muted-foreground">{inactiveCount}</p>
           </CardContent>
         </Card>
       </div>

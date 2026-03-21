@@ -104,7 +104,7 @@ function StaffFormDialog({
               </FormItem>
             )} />
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField control={form.control} name="username" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Username *</FormLabel>
@@ -140,7 +140,7 @@ function StaffFormDialog({
               </FormItem>
             )} />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="password" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">

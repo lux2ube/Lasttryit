@@ -642,7 +642,7 @@ export default function Webhooks() {
                   </CardContent>
                 </Card>
               ) : (
-                <Card>
+                <Card className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -894,7 +894,7 @@ export default function Webhooks() {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Pending", filter: "pending" as const, icon: Clock, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-900/20", border: "border-amber-200 dark:border-amber-800" },
               { label: "Done", filter: "done" as const, icon: CheckCheck, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20", border: "border-emerald-200 dark:border-emerald-800" },
@@ -993,7 +993,7 @@ export default function Webhooks() {
               </CardContent>
             </Card>
           ) : (
-            <Card>
+            <Card className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1228,7 +1228,7 @@ function ConfigDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Name</FormLabel>
@@ -1338,7 +1338,7 @@ function RuleDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Name</FormLabel>
@@ -1368,7 +1368,7 @@ function RuleDialog({
 
             <Separator />
             <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">Client Name <InfoTip text="Text boundaries to extract the client name from the SMS" /></p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="clientAfterString" render={({ field }) => (
                 <FormItem>
                   <FormLabel>After</FormLabel>
@@ -1390,7 +1390,7 @@ function RuleDialog({
             </div>
 
             <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">Amount <InfoTip text="Text boundaries to extract the amount from the SMS" /></p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="amountAfterString" render={({ field }) => (
                 <FormItem>
                   <FormLabel>After</FormLabel>
@@ -1411,7 +1411,7 @@ function RuleDialog({
               )} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="sortOrder" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1">Priority <InfoTip text="Lower number = higher priority" /></FormLabel>

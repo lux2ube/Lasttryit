@@ -308,7 +308,7 @@ export default function WhatsAppPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         <StatCard label="Daily Sent" value={waStatus?.dailyMessageCount ?? 0} max={waStatus?.dailyLimit ?? 200} icon={Send} color="text-blue-600" />
         <StatCard label="Queued" value={stats?.queued ?? 0} icon={Clock} color="text-amber-600" />
         <StatCard label="Sent" value={stats?.sent ?? 0} icon={CheckCircle} color="text-emerald-600" />
@@ -370,7 +370,7 @@ export default function WhatsAppPage() {
                     />
                   </div>
                 )}
-                <div className="rounded-lg border overflow-hidden">
+                <div className="rounded-lg border overflow-hidden overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -479,7 +479,7 @@ export default function WhatsAppPage() {
               <CardDescription>These customers have WhatsApp groups assigned and will receive confirmation notifications.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="rounded-lg border overflow-hidden">
+              <div className="rounded-lg border overflow-hidden overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

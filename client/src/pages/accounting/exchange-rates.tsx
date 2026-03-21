@@ -108,7 +108,7 @@ function RateFormDialog({
               </FormItem>
             )} />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField control={form.control} name="buyRate" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-emerald-700 dark:text-emerald-400">Buy Rate *</FormLabel>
@@ -219,7 +219,7 @@ export default function ExchangeRatesPage() {
       </div>
 
       {/* How rates connect to the system */}
-      <div className="px-6 pt-4 pb-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="px-3 sm:px-6 pt-4 pb-2 grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-1">
@@ -354,7 +354,7 @@ export default function ExchangeRatesPage() {
         <span className="text-sm text-muted-foreground">{filtered.length} rate entries</span>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 pb-6">
+      <div className="flex-1 overflow-auto px-3 sm:px-6 pb-3 sm:pb-6">
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">Loading rates…</div>
         ) : filtered.length === 0 ? (

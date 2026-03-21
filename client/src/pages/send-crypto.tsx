@@ -638,6 +638,7 @@ export default function SendCrypto() {
                   <p className="text-xs text-muted-foreground">No transactions yet</p>
                 </div>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent text-[11px]">
@@ -696,6 +697,7 @@ export default function SendCrypto() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </div>
 

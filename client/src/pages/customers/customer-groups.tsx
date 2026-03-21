@@ -150,7 +150,7 @@ function GroupDialog({
               <div className="flex-1 overflow-auto">
                 {/* Basic Info */}
                 <TabsContent value="basic" className="space-y-4 mt-0">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField control={form.control} name="code" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Code * <span className="text-xs text-muted-foreground font-normal">(e.g. vip, gold)</span></FormLabel>
@@ -305,7 +305,7 @@ function GroupDialog({
                     <p className="text-sm font-medium mb-1">Record (Transaction) Limits</p>
                     <p className="text-xs text-muted-foreground mb-4">Set maximum allowed amounts per record, per month, and per year. Leave blank for no limit.</p>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="recordLimits.currency" render={({ field }) => (
                       <FormItem className="col-span-2">
                         <FormLabel>Limit Currency</FormLabel>

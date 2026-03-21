@@ -205,7 +205,7 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-3 sm:p-6 space-y-4">
         {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-48 w-full" />)}
       </div>
     );
