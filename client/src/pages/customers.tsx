@@ -1595,29 +1595,27 @@ function CustomerFormPage({
               )} />
 
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="phonePrimary" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone *</FormLabel>
-                      <FormControl>
-                        <PhoneInput
-                          value={field.value}
-                          onChange={field.onChange}
-                          placeholder="7X XXX XXXX"
-                          data-testid="input-phone"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="email" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
+                <FormField control={form.control} name="phonePrimary" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone *</FormLabel>
+                    <FormControl>
+                      <PhoneInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="7X XXX XXXX"
+                        data-testid="input-phone"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="email" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
                 {secondaryPhones.map((phone, idx) => (
                   <div key={`sp-${idx}-${secondaryPhones.length}`} className="flex items-end gap-2">
                     <div className="flex-1">

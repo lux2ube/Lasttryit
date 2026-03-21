@@ -356,8 +356,27 @@ export class DatabaseStorage implements IStorage {
     return found;
   }
   async findCustomerByFullName(name: string, excludeId?: string) {
-    const normalized = name.trim().toLowerCase();
-    const conditions: any[] = [sql`lower(trim(${customers.fullName})) = ${normalized}`];
+    // Normalize both sides identically:
+    //  1. Trim + collapse internal whitespace to single space
+    //  2. Normalize Arabic alef variants (أإآ → ا) so OCR/typing differences don't bypass the check
+    //  3. Lowercase (handles any Latin mixed names)
+    const normalizeAr = (s: string) =>
+      s.trim()
+       .replace(/\s+/g, " ")
+       .replace(/[أإآ]/g, "ا")
+       .replace(/ة/g, "ه")
+       .toLowerCase();
+    const normalized = normalizeAr(name);
+    // SQL side: collapse whitespace, normalize alef variants, lowercase
+    const conditions: any[] = [
+      sql`lower(
+        translate(
+          regexp_replace(trim(${customers.fullName}), '\\s+', ' ', 'g'),
+          'أإآة',
+          'اااه'
+        )
+      ) = ${normalized}`,
+    ];
     if (excludeId) conditions.push(ne(customers.id, excludeId));
     const [found] = await db.select().from(customers).where(and(...conditions));
     return found;
