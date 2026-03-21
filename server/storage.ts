@@ -391,7 +391,7 @@ export class DatabaseStorage implements IStorage {
     if (filters?.verificationStatus) conditions.push(eq(customers.verificationStatus, filters.verificationStatus as any));
     if (filters?.riskLevel) conditions.push(eq(customers.riskLevel, filters.riskLevel as any));
     if (conditions.length > 0) query = query.where(and(...conditions));
-    return query.orderBy(desc(customers.createdAt));
+    return query.orderBy(customers.customerId);
   }
   async generateCustomerId() {
     const count = await db.select({ count: sql<number>`count(*)` }).from(customers);
