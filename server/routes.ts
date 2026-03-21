@@ -3104,6 +3104,24 @@ General rules:
     }
   });
 
+  app.get("/api/kuraimi/probe", requireAuth, requireRole("admin", "operations_manager"), async (req, res) => {
+    try {
+      if (!kuraimiService.isConfigured()) return res.status(400).json({ message: "Kuraimi credentials not configured" });
+      const scustId = queryStr(req.query.scustId) || undefined;
+      const results = await kuraimiService.probeAccountEndpoints(scustId);
+      res.json(results);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/kuraimi/account-statement", requireAuth, async (req, res) => {
+    try {
+      if (!kuraimiService.isConfigured()) return res.status(400).json({ message: "Kuraimi credentials not configured" });
+      const scustId = queryStr(req.query.scustId) || undefined;
+      const result = await kuraimiService.getAccountStatement(scustId);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message, detail: e.data }); }
+  });
+
   app.post("/api/kuraimi/link-record/:id", requireAuth, requireRole("admin", "operations_manager", "finance_officer"), async (req, res) => {
     try {
       const { recordId } = req.body;

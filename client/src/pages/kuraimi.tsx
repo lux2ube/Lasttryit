@@ -13,9 +13,16 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Landmark, Send, RotateCcw, Search, AlertTriangle, CheckCircle,
-  XCircle, Clock, Link2, ChevronLeft, ChevronRight,
+  XCircle, Clock, Link2, ChevronLeft, ChevronRight, RefreshCw,
+  Wallet, ArrowDownLeft, ArrowUpRight, Activity,
 } from "lucide-react";
 import { format } from "date-fns";
+
+interface AccountStatementResult {
+  balance: any;
+  lastTransaction: any;
+  rawResponse: any;
+}
 
 interface KuraimiPayment {
   id: string;
@@ -270,6 +277,203 @@ function PaymentDetailDialog({ payment, onClose }: { payment: KuraimiPayment; on
   );
 }
 
+function AccountStatementCard({ configured }: { configured: boolean }) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [result, setResult] = useState<AccountStatementResult | null>(null);
+  const [probeResult, setProbeResult] = useState<Record<string, any> | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [showProbe, setShowProbe] = useState(false);
+  const isAdmin = user?.role === "admin" || user?.role === "operations_manager";
+
+  const fetchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/kuraimi/account-statement", { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to fetch account statement");
+      return data as AccountStatementResult;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      toast({ title: "Account statement fetched successfully" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Failed to fetch account statement", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const probeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/kuraimi/probe", { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Probe failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      setProbeResult(data);
+      setShowProbe(true);
+      toast({ title: "API probe complete", description: "Check results below" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Probe failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const tx = result?.lastTransaction;
+  const balance = result?.balance;
+
+  function renderTxField(label: string, value: any) {
+    if (value === null || value === undefined || value === "") return null;
+    return (
+      <div key={label}>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="font-semibold text-sm">{String(value)}</p>
+      </div>
+    );
+  }
+
+  function flattenObj(obj: any, prefix = ""): Record<string, string> {
+    if (!obj || typeof obj !== "object") return {};
+    return Object.entries(obj).reduce((acc: Record<string, string>, [k, v]) => {
+      const key = prefix ? `${prefix}.${k}` : k;
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+        Object.assign(acc, flattenObj(v, key));
+      } else {
+        acc[key] = String(v);
+      }
+      return acc;
+    }, {});
+  }
+
+  return (
+    <Card className="mb-4 border-primary/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-primary" />
+            Kuraimi Account — Last Transaction
+          </CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isAdmin && (
+              <Button
+                variant="ghost" size="sm"
+                onClick={() => probeMutation.mutate()}
+                disabled={probeMutation.isPending || !configured}
+                data-testid="button-kuraimi-probe"
+              >
+                <Activity className="w-3.5 h-3.5 mr-1" />
+                {probeMutation.isPending ? "Probing..." : "Probe API"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => fetchMutation.mutate()}
+              disabled={fetchMutation.isPending || !configured}
+              data-testid="button-kuraimi-fetch-statement"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${fetchMutation.isPending ? "animate-spin" : ""}`} />
+              {fetchMutation.isPending ? "Fetching..." : result ? "Refresh" : "Fetch Last Transaction"}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!configured && (
+          <p className="text-sm text-muted-foreground">Configure Kuraimi credentials to enable account inquiry.</p>
+        )}
+
+        {configured && !result && !fetchMutation.isPending && (
+          <p className="text-sm text-muted-foreground">
+            Click "Fetch Last Transaction" to retrieve your latest Kuraimi Jawal bank transaction.
+          </p>
+        )}
+
+        {fetchMutation.isPending && (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        )}
+
+        {result && !fetchMutation.isPending && (
+          <div className="space-y-4">
+            {balance !== null && balance !== undefined && (
+              <div className="rounded-lg bg-primary/5 border border-primary/20 p-4">
+                <p className="text-xs text-muted-foreground mb-1">Current Balance</p>
+                <p className="text-2xl font-bold text-primary" data-testid="text-kuraimi-balance">
+                  {typeof balance === "number" ? balance.toLocaleString() : balance}
+                </p>
+              </div>
+            )}
+
+            {tx && (
+              <div className="rounded-lg bg-muted/40 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                    {(tx.Type || tx.type || tx.TxType || "").toLowerCase().includes("credit")
+                      ? <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                      : <ArrowUpRight className="w-3.5 h-3.5 text-red-500" />
+                    }
+                  </div>
+                  <p className="text-sm font-semibold">Last Transaction</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {Object.entries(flattenObj(tx)).map(([k, v]) => renderTxField(k, v))}
+                </div>
+              </div>
+            )}
+
+            {!tx && (
+              <div className="text-sm text-muted-foreground rounded-lg bg-muted/40 p-4">
+                No transaction details found in response.
+                <button
+                  className="ml-2 text-primary underline text-xs"
+                  onClick={() => setShowRaw(!showRaw)}
+                >
+                  {showRaw ? "Hide" : "Show"} raw response
+                </button>
+              </div>
+            )}
+
+            {(showRaw || tx) && result.rawResponse && (
+              <div>
+                <button
+                  className="text-xs text-muted-foreground underline mb-2"
+                  onClick={() => setShowRaw(!showRaw)}
+                >
+                  {showRaw ? "Hide" : "Show"} raw API response
+                </button>
+                {showRaw && (
+                  <pre className="text-xs bg-muted rounded-lg p-3 overflow-auto max-h-64 border border-border"
+                    data-testid="text-kuraimi-raw-response"
+                  >
+                    {JSON.stringify(result.rawResponse, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showProbe && probeResult && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Endpoint Probe Results</p>
+              <button className="text-xs text-muted-foreground underline" onClick={() => setShowProbe(false)}>Hide</button>
+            </div>
+            <pre className="text-xs bg-muted rounded-lg p-3 overflow-auto max-h-80 border border-border"
+              data-testid="text-kuraimi-probe-results"
+            >
+              {JSON.stringify(probeResult, null, 2)}
+            </pre>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function KuraimiPage() {
   const { toast } = useToast();
   const [page, setPage] = useState(1);
@@ -331,6 +535,8 @@ export default function KuraimiPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      <AccountStatementCard configured={!!status?.configured} />
 
       <div className="flex flex-wrap gap-3 mb-4">
         <div className="relative flex-1 min-w-48">

@@ -6,8 +6,14 @@ import { eq, desc, sql } from "drizzle-orm";
 
 const UAT_BASE_URL = "https://web.krmbank.net.ye:44746";
 const API_PATHS = {
-  sendPayment: "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/SendPayment",
-  reversePayment: "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/ReversePayment",
+  sendPayment:        "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/SendPayment",
+  reversePayment:     "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/ReversePayment",
+  getBalance:         "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/GetBalance",
+  getMiniStatement:   "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/GetMiniStatement",
+  getStatement:       "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/GetStatement",
+  getLastTransaction: "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/GetLastTransaction",
+  inquiry:            "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/Inquiry",
+  checkBalance:       "/alk-payments-exp/v1/PHEPaymentAPI/EPayment/CheckBalance",
 };
 
 interface ApiResponse {
@@ -189,4 +195,84 @@ export async function linkPaymentToRecord(paymentId: string, recordId: string) {
     .where(eq(kuraimiPayments.id, paymentId))
     .returning();
   return updated;
+}
+
+// ── Account inquiry: try every plausible endpoint to discover what the API supports ──
+export async function probeAccountEndpoints(scustId?: string): Promise<Record<string, any>> {
+  const client = getAxios();
+  const payload: Record<string, any> = {};
+  if (scustId) payload.SCustID = scustId;
+
+  const candidates = [
+    { name: "GetBalance",         path: API_PATHS.getBalance,         method: "post" },
+    { name: "GetMiniStatement",   path: API_PATHS.getMiniStatement,   method: "post" },
+    { name: "GetStatement",       path: API_PATHS.getStatement,       method: "post" },
+    { name: "GetLastTransaction", path: API_PATHS.getLastTransaction, method: "post" },
+    { name: "Inquiry",            path: API_PATHS.inquiry,            method: "post" },
+    { name: "CheckBalance",       path: API_PATHS.checkBalance,       method: "post" },
+    { name: "GetBalance-GET",     path: API_PATHS.getBalance,         method: "get"  },
+    { name: "GetMiniStat-GET",    path: API_PATHS.getMiniStatement,   method: "get"  },
+  ];
+
+  const results: Record<string, any> = {};
+  for (const c of candidates) {
+    try {
+      const res = c.method === "get"
+        ? await client.get(c.path, { params: scustId ? { SCustID: scustId } : undefined })
+        : await client.post(c.path, payload);
+      results[c.name] = { status: res.status, data: res.data };
+    } catch (err: any) {
+      results[c.name] = {
+        status: err.response?.status ?? "network_error",
+        data: err.response?.data ?? err.message,
+      };
+    }
+  }
+  return results;
+}
+
+// ── Get account balance & last transaction ──
+export async function getAccountStatement(scustId?: string): Promise<{
+  balance: any;
+  lastTransaction: any;
+  rawResponse: any;
+}> {
+  const client = getAxios();
+  const payload: Record<string, any> = {};
+  if (scustId) payload.SCustID = scustId;
+
+  // Try the most likely inquiry endpoints in priority order
+  const inquiryPaths = [
+    API_PATHS.getMiniStatement,
+    API_PATHS.getBalance,
+    API_PATHS.getStatement,
+    API_PATHS.getLastTransaction,
+    API_PATHS.inquiry,
+    API_PATHS.checkBalance,
+  ];
+
+  let lastErr: any;
+  for (const path of inquiryPaths) {
+    try {
+      const res = await client.post(path, payload);
+      const data = res.data;
+      // If we get a non-error response, parse it
+      if (data) {
+        const balance = data.Balance ?? data.BALANCE ?? data.balance
+          ?? data.ResultSet?.Balance ?? data.ResultSet?.BALANCE
+          ?? data.ResultSet?.AvailableBalance ?? data.ResultSet?.available_balance
+          ?? null;
+        const txs = data.ResultSet?.Transactions ?? data.ResultSet?.transactions
+          ?? data.Transactions ?? data.transactions
+          ?? data.ResultSet?.MiniStatement ?? data.ResultSet?.miniStatement
+          ?? null;
+        const lastTx = Array.isArray(txs) ? txs[0] : (txs ?? data.ResultSet ?? data);
+        return { balance, lastTransaction: lastTx, rawResponse: { path, ...data } };
+      }
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+
+  throw new Error(lastErr?.response?.data?.Message ?? lastErr?.message ?? "All inquiry endpoints failed");
 }
